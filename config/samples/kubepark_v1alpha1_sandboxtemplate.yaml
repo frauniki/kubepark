@@ -1,0 +1,9 @@
+apiVersion: kubepark.sinoa.jp/v1alpha1
+kind: SandboxTemplate
+metadata:
+  labels:
+    app.kubernetes.io/name: kubepark
+    app.kubernetes.io/managed-by: kustomize
+  name: sandboxtemplate-sample
+spec:
+  # TODO(user): Add fields here

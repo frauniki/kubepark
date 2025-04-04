@@ -7,4 +7,22 @@ layout:
 - go.kubebuilder.io/v4
 projectName: kubepark
 repo: github.com/frauniki/kubepark
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: sinoa.jp
+  group: kubepark
+  kind: SandboxTemplate
+  path: github.com/frauniki/kubepark/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: sinoa.jp
+  group: kubepark
+  kind: Sandbox
+  path: github.com/frauniki/kubepark/api/v1alpha1
+  version: v1alpha1
 version: "3"

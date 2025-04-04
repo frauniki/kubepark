@@ -1,0 +1,29 @@
+# This rule is not used by the project kubepark itself.
+# It is provided to allow the cluster admin to help manage permissions for users.
+#
+# Grants read-only access to kubepark.sinoa.jp resources.
+# This role is intended for users who need visibility into these resources
+# without permissions to modify them. It is ideal for monitoring purposes and limited-access viewing.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: kubepark
+    app.kubernetes.io/managed-by: kustomize
+  name: sandbox-viewer-role
+rules:
+- apiGroups:
+  - kubepark.sinoa.jp
+  resources:
+  - sandboxes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kubepark.sinoa.jp
+  resources:
+  - sandboxes/status
+  verbs:
+  - get
