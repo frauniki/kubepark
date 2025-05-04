@@ -960,8 +960,8 @@ spec:
                     type: object
                 type: object
               container:
-                description: A single application container that you want to run within
-                  a pod.
+                description: Container defines the container configuration for the
+                  sandbox.
                 properties:
                   args:
                     description: |-
@@ -2374,8 +2374,15 @@ spec:
                 - name
                 type: object
               hostNetwork:
+                description: HostNetwork indicates if the pod should use the host
+                  network namespace.
                 type: boolean
+              image:
+                description: Image is the Docker image to use for the sandbox.
+                type: string
               imagePullSecrets:
+                description: ImagePullSecrets is an optional list of references to
+                  secrets in the same namespace to use for pulling any of the images.
                 items:
                   description: |-
                     LocalObjectReference contains enough information to let you locate the
@@ -2396,15 +2403,35 @@ spec:
               nodeSelector:
                 additionalProperties:
                   type: string
+                description: NodeSelector is a selector which must be true for the
+                  pod to fit on a node.
                 type: object
               sandboxTemplateRef:
+                description: SandboxTemplateRef is a reference to a SandboxTemplate
+                  resource.
                 properties:
                   name:
                     type: string
                 type: object
               serviceAccountName:
+                description: ServiceAccountName is the name of the ServiceAccount
+                  to use to run this sandbox.
                 type: string
+              ssh:
+                description: SSH defines the SSH configuration for the sandbox.
+                properties:
+                  publicKey:
+                    description: PublicKey is the SSH public key to use for accessing
+                      the sandbox.
+                    type: string
+                type: object
+              terminationGracePeriodSeconds:
+                description: TerminationGracePeriodSeconds is the duration in seconds
+                  the pod needs to terminate gracefully.
+                format: int64
+                type: integer
               tolerations:
+                description: Tolerations are the pod's tolerations.
                 items:
                   description: |-
                     The pod this Toleration is attached to tolerates any taint that matches
