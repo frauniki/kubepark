@@ -39,7 +39,8 @@ metadata:
   name: example-sandbox
 spec:
   image: kubepark/sandbox-ssh:latest
-  sshPublicKey: "ssh-rsa AAAAB3NzaC1yc2E... user@example.com"
+  ssh:
+    publicKey: "ssh-rsa AAAAB3NzaC1yc2E... user@example.com"
   terminationGracePeriodSeconds: 60
 ```
 
