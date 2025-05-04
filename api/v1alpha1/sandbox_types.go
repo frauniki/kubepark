@@ -50,11 +50,20 @@ type SandboxSpec struct {
 	// SandboxTemplateRef is a reference to a SandboxTemplate resource.
 	SandboxTemplateRef *SandboxTemplateRef `json:"sandboxTemplateRef,omitempty" protobuf:"bytes,8,opt,name=sandboxTemplateRef"`
 	
+	// Image is the Docker image to use for the sandbox.
 	Image string `json:"image,omitempty" protobuf:"bytes,9,opt,name=image"`
 	
-	SSHPublicKey string `json:"sshPublicKey,omitempty" protobuf:"bytes,10,opt,name=sshPublicKey"`
+	// SSH defines the SSH configuration for the sandbox.
+	SSH *SSHConfig `json:"ssh,omitempty" protobuf:"bytes,10,opt,name=ssh"`
 	
+	// TerminationGracePeriodSeconds is the duration in seconds the pod needs to terminate gracefully.
 	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty" protobuf:"varint,11,opt,name=terminationGracePeriodSeconds"`
+}
+
+// SSHConfig defines the SSH configuration for the sandbox.
+type SSHConfig struct {
+	// PublicKey is the SSH public key to use for accessing the sandbox.
+	PublicKey string `json:"publicKey,omitempty" protobuf:"bytes,1,opt,name=publicKey"`
 }
 
 type SandboxTemplateRef struct {

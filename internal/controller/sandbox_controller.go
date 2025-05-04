@@ -216,7 +216,7 @@ func (r *SandboxReconciler) reconcileSSHPublicKeyConfigMap(ctx context.Context, 
 	log := logf.FromContext(ctx)
 	log.Info("Reconciling SSH public key ConfigMap", "namespace", sandbox.Namespace, "name", sandbox.Name)
 
-	if sandbox.Spec.SSHPublicKey == "" {
+	if sandbox.Spec.SSH == nil || sandbox.Spec.SSH.PublicKey == "" {
 		return fmt.Errorf("SSH public key is required")
 	}
 
@@ -226,7 +226,7 @@ func (r *SandboxReconciler) reconcileSSHPublicKeyConfigMap(ctx context.Context, 
 			Namespace: sandbox.Namespace,
 		},
 		Data: map[string]string{
-			"authorized_keys": sandbox.Spec.SSHPublicKey,
+			"authorized_keys": sandbox.Spec.SSH.PublicKey,
 		},
 	}
 
