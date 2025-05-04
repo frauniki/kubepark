@@ -23,24 +23,38 @@ import (
 
 // SandboxSpec defines the desired state of Sandbox.
 type SandboxSpec struct {
+	// ServiceAccountName is the name of the ServiceAccount to use to run this sandbox.
 	ServiceAccountName string `json:"serviceAccountName,omitempty" protobuf:"bytes,1,opt,name=serviceAccountName"`
 
+	// NodeSelector is a selector which must be true for the pod to fit on a node.
 	NodeSelector map[string]string `json:"nodeSelector,omitempty" protobuf:"bytes,2,opt,name=nodeSelector"`
 
 	Affinity *apiv1.Affinity `json:"affinity,omitempty" protobuf:"bytes,3,opt,name=affinity"`
+	
+	// Tolerations are the pod's tolerations.
 	// +patchStrategy=merge
 	// +patchMergeKey=key
 	Tolerations []apiv1.Toleration `json:"tolerations,omitempty" patchStrategy:"merge" patchMergeKey:"key" protobuf:"bytes,4,opt,name=tolerations"`
 
+	// ImagePullSecrets is an optional list of references to secrets in the same namespace to use for pulling any of the images.
 	// +patchStrategy=merge
 	// +patchMergeKey=name
 	ImagePullSecrets []apiv1.LocalObjectReference `json:"imagePullSecrets,omitempty" patchStrategy:"merge" patchMergeKey:"name" protobuf:"bytes,5,opt,name=imagePullSecrets"`
 
+	// HostNetwork indicates if the pod should use the host network namespace.
 	HostNetwork *bool `json:"hostNetwork,omitempty" protobuf:"bytes,6,opt,name=hostNetwork"`
 
+	// Container defines the container configuration for the sandbox.
 	Container *apiv1.Container `json:"container,omitempty" protobuf:"bytes,7,opt,name=container"`
 
+	// SandboxTemplateRef is a reference to a SandboxTemplate resource.
 	SandboxTemplateRef *SandboxTemplateRef `json:"sandboxTemplateRef,omitempty" protobuf:"bytes,8,opt,name=sandboxTemplateRef"`
+	
+	Image string `json:"image,omitempty" protobuf:"bytes,9,opt,name=image"`
+	
+	SSHPublicKey string `json:"sshPublicKey,omitempty" protobuf:"bytes,10,opt,name=sshPublicKey"`
+	
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty" protobuf:"varint,11,opt,name=terminationGracePeriodSeconds"`
 }
 
 type SandboxTemplateRef struct {

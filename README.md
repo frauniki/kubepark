@@ -1,8 +1,10 @@
-# kubepark
-// TODO(user): Add simple overview of use/purpose
+# KubePark
+
+KubePark is a Kubernetes operator that provides temporary sandbox environments as pods on Kubernetes for users to freely work in via a shell console.
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+
+KubePark allows platform administrators to create isolated sandbox environments within a Kubernetes cluster. Users can define a `Sandbox` custom resource with configurations for the pod, such as the Docker image and SSH keys required for user access. The custom controller reconciles and launches the sandbox environment based on the specified configurations. When the `Sandbox` resource is deleted, the controller will wait for a configurable termination grace period before removing the pod.
 
 ## Getting Started
 
@@ -11,6 +13,37 @@
 - docker version 17.03+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
+
+### Accessing Sandbox Environments
+
+To access a running sandbox environment, you can use `kubectl port-forward` to forward the SSH port from the sandbox pod to your local machine:
+
+```sh
+# Forward the SSH port from the sandbox pod to your local machine
+kubectl port-forward pod/sandbox-<sandbox-name> 2222:22 -n <namespace>
+
+# Connect to the sandbox using SSH
+ssh -p 2222 sandbox@localhost
+```
+
+Make sure you have the corresponding private key for the SSH public key that was specified in the Sandbox resource.
+
+### Sample Sandbox Resource
+
+Here's an example of a Sandbox resource:
+
+```yaml
+apiVersion: kubepark.sinoa.jp/v1alpha1
+kind: Sandbox
+metadata:
+  name: example-sandbox
+spec:
+  image: kubepark/sandbox-ssh:latest
+  sshPublicKey: "ssh-rsa AAAAB3NzaC1yc2E... user@example.com"
+  terminationGracePeriodSeconds: 60
+```
+
+This will create a sandbox environment using the specified image and SSH public key. When the Sandbox resource is deleted, the controller will wait for 60 seconds before terminating the pod.
 
 ### To Deploy on the cluster
 **Build and push your image to the location specified by `IMG`:**
