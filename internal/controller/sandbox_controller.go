@@ -404,7 +404,7 @@ func (r *SandboxReconciler) updateSandboxStatus(ctx context.Context, sandbox *ku
 		sandbox.Status.Phase = kubeparkv1alpha1.SandboxPending
 		sandbox.Status.Message = "Sandbox pod is pending"
 	case corev1.PodRunning:
-		sandbox.Status.Phase = kubeparkv1alpha1.SnadboxRunning
+		sandbox.Status.Phase = kubeparkv1alpha1.SandboxRunning
 		sandbox.Status.Message = "Sandbox pod is running"
 		if sandbox.Status.StartedAt == nil {
 			now := metav1.Now()
