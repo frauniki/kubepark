@@ -30,7 +30,7 @@ type SandboxSpec struct {
 	NodeSelector map[string]string `json:"nodeSelector,omitempty" protobuf:"bytes,2,opt,name=nodeSelector"`
 
 	Affinity *apiv1.Affinity `json:"affinity,omitempty" protobuf:"bytes,3,opt,name=affinity"`
-	
+
 	// Tolerations are the pod's tolerations.
 	// +patchStrategy=merge
 	// +patchMergeKey=key
@@ -49,13 +49,13 @@ type SandboxSpec struct {
 
 	// SandboxTemplateRef is a reference to a SandboxTemplate resource.
 	SandboxTemplateRef *SandboxTemplateRef `json:"sandboxTemplateRef,omitempty" protobuf:"bytes,8,opt,name=sandboxTemplateRef"`
-	
+
 	// Image is the Docker image to use for the sandbox.
 	Image string `json:"image,omitempty" protobuf:"bytes,9,opt,name=image"`
-	
+
 	// SSH defines the SSH configuration for the sandbox.
 	SSH *SSHConfig `json:"ssh,omitempty" protobuf:"bytes,10,opt,name=ssh"`
-	
+
 	// TerminationGracePeriodSeconds is the duration in seconds the pod needs to terminate gracefully.
 	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty" protobuf:"varint,11,opt,name=terminationGracePeriodSeconds"`
 }

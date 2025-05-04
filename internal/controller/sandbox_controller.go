@@ -278,7 +278,7 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 			Name:      fmt.Sprintf("sandbox-%s", sandbox.Name),
 			Namespace: sandbox.Namespace,
 			Labels: map[string]string{
-				"app":                 "kubepark",
+				"app":                       "kubepark",
 				"kubepark.sinoa.jp/sandbox": sandbox.Name,
 			},
 		},

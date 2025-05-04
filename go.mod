@@ -1,8 +1,6 @@
 module github.com/frauniki/kubepark
 
-go 1.23.0
-
-godebug default=go1.23
+go 1.23
 
 require (
 	github.com/onsi/ginkgo/v2 v2.22.0
