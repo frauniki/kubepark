@@ -205,6 +205,9 @@ func (r *SandboxReconciler) applySandboxTemplate(ctx context.Context, sandbox *k
 	if sandbox.Spec.Image == "" && template.Spec.Image != "" {
 		sandbox.Spec.Image = template.Spec.Image
 	}
+	if sandbox.Spec.SSH == nil && template.Spec.SSH != nil {
+		sandbox.Spec.SSH = template.Spec.SSH
+	}
 	if sandbox.Spec.TerminationGracePeriodSeconds == nil && template.Spec.TerminationGracePeriodSeconds != nil {
 		sandbox.Spec.TerminationGracePeriodSeconds = template.Spec.TerminationGracePeriodSeconds
 	}
