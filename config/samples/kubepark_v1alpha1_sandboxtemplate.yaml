@@ -6,4 +6,15 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: sandboxtemplate-sample
 spec:
-  # TODO(user): Add fields here
+  image: kubepark/sandbox-ssh:latest
+  terminationGracePeriodSeconds: 60
+  ssh:
+    publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDTd4/QQEZiVlP8YdOiGrF8sFi+n7G+pPX7JFaXxeP5v/xZoLp1CIYTUfgfs8FYM4VjU8PvcQtM5r0DNwOcLkx7l7XEKyICxR2bV5QGUmFe2cZ7Vvh9ooEl/LFdogxgvRT9qUYZnrY4BtEuW0O7P3NQQ9IfEh+wPg+31xJj4JCXQWZCJxiGgEGGUTyuZ8jpcuJ5zKWdIWmQrZMIgpzjLiXXbEh8xNYrE0DO5mLKKxuQL2ik4KfAZDQC9ZPC0T+Z8L9U9pGSEaopkPQA9C9U0hT9L6mFoEzQZN5GxkKIESz2BOAlQpSevp6jTLVr3FGIGrxwzNQ1Vy8NJJfTnNrBW4HyEQZXJkGxKxMGIZVGzCXQ1VeX9UvvJi3UrOKnJ/sMF6/nKqxjBzHWbwxTr+n8l2EGJQ2ayLnLlEtVKRGBKz+G7i3woEQWWNxN1xhOQUL3ZYveGnmcYA0WcQqzwQzQxoKImnUJt+84+LJ4QZKq/XKS7BBCQQa5/5jBJQtQdYk= user@example.com"
+  container:
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "100m"
+        memory: "128Mi"

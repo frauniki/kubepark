@@ -5,7 +5,7 @@ type SandboxPhase string
 const (
 	SandboxUnknown   SandboxPhase = ""
 	SandboxPending   SandboxPhase = "Pending"
-	SnadboxRunning   SandboxPhase = "Running"
+	SandboxRunning   SandboxPhase = "Running"
 	SandboxFailed    SandboxPhase = "Failed"
 	SandboxError     SandboxPhase = "Error"
 	SandboxCompleted SandboxPhase = "Completed"
