@@ -11,14 +11,7 @@ RUN mkdir -p /var/run/sshd && \
     mkdir -p /root/.ssh && \
     chmod 700 /root/.ssh && \
     echo "PermitRootLogin prohibit-password" >> /etc/ssh/sshd_config && \
-    echo "AuthorizedKeysFile /etc/ssh/authorized_keys" >> /etc/ssh/sshd_config && \
     sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
-
-# Create a non-root user
-RUN useradd -m -s /bin/bash sandbox && \
-    mkdir -p /home/sandbox/.ssh && \
-    chmod 700 /home/sandbox/.ssh && \
-    chown -R sandbox:sandbox /home/sandbox
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh

@@ -2434,6 +2434,11 @@ spec:
                     description: PublicKey is the SSH public key to use for accessing
                       the sandbox.
                     type: string
+                  username:
+                    description: |-
+                      Username is the SSH username to use for accessing the sandbox.
+                      Defaults to "sandbox" if not specified.
+                    type: string
                 type: object
               terminationGracePeriodSeconds:
                 description: TerminationGracePeriodSeconds is the duration in seconds
