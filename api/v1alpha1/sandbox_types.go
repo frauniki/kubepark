@@ -53,11 +53,17 @@ type SandboxSpec struct {
 	// Image is the Docker image to use for the sandbox.
 	Image string `json:"image,omitempty" protobuf:"bytes,9,opt,name=image"`
 
+	// ImagePullPolicy describes a policy for if/when to pull a container image.
+	// Valid values are Always, Never, IfNotPresent.
+	// Defaults to Always if :latest tag is specified, or IfNotPresent otherwise.
+	// +kubebuilder:validation:Enum=Always;Never;IfNotPresent
+	ImagePullPolicy apiv1.PullPolicy `json:"imagePullPolicy,omitempty" protobuf:"bytes,10,opt,name=imagePullPolicy"`
+
 	// SSH defines the SSH configuration for the sandbox.
-	SSH *SSHConfig `json:"ssh,omitempty" protobuf:"bytes,10,opt,name=ssh"`
+	SSH *SSHConfig `json:"ssh,omitempty" protobuf:"bytes,11,opt,name=ssh"`
 
 	// TerminationGracePeriodSeconds is the duration in seconds the pod needs to terminate gracefully.
-	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty" protobuf:"varint,11,opt,name=terminationGracePeriodSeconds"`
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty" protobuf:"varint,12,opt,name=terminationGracePeriodSeconds"`
 }
 
 // SSHConfig defines the SSH configuration for the sandbox.

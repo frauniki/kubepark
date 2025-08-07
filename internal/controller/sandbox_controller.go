@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -38,9 +39,8 @@ const (
 	defaultSandboxImage                  = "kubepark/sandbox-ssh:latest"
 	defaultTerminationGracePeriodSeconds = int64(30)
 	sshConfigVolumeName                  = "ssh-config"
-	sshConfigMountPath                   = "/etc/ssh"
+	sshConfigMountPath                   = "/tmp/ssh-config"
 	sshPublicKeyConfigMapName            = "ssh-public-key"
-	sshAuthorizedKeysPath                = "/etc/ssh/authorized_keys"
 	sandboxFinalizer                     = "kubepark.sinoa.jp/sandbox-finalizer"
 )
 
@@ -74,9 +74,12 @@ func (r *SandboxReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	// 削除処理
 	if sandbox.GetDeletionTimestamp() != nil {
 		if controllerutil.ContainsFinalizer(sandbox, sandboxFinalizer) {
+			log.Info("Sandbox is being deleted, running finalizer", "namespace", sandbox.Namespace, "name", sandbox.Name)
 			if err := r.finalizeSandbox(ctx, sandbox); err != nil {
+				log.Error(err, "Failed to finalize sandbox")
 				return ctrl.Result{}, err
 			}
 
@@ -205,6 +208,9 @@ func (r *SandboxReconciler) applySandboxTemplate(ctx context.Context, sandbox *k
 	if sandbox.Spec.Image == "" && template.Spec.Image != "" {
 		sandbox.Spec.Image = template.Spec.Image
 	}
+	if sandbox.Spec.ImagePullPolicy == "" && template.Spec.ImagePullPolicy != "" {
+		sandbox.Spec.ImagePullPolicy = template.Spec.ImagePullPolicy
+	}
 	if sandbox.Spec.SSH == nil && template.Spec.SSH != nil {
 		sandbox.Spec.SSH = template.Spec.SSH
 	}
@@ -244,13 +250,18 @@ func (r *SandboxReconciler) reconcileSSHPublicKeyConfigMap(ctx context.Context, 
 			if err := r.Create(ctx, configMap); err != nil {
 				return err
 			}
+			log.Info("Created SSH public key ConfigMap", "name", configMap.Name)
 		} else {
 			return err
 		}
 	} else {
-		existingConfigMap.Data = configMap.Data
-		if err := r.Update(ctx, existingConfigMap); err != nil {
-			return err
+		// Only update if the data has changed
+		if existingConfigMap.Data["authorized_keys"] != sandbox.Spec.SSH.PublicKey {
+			existingConfigMap.Data = configMap.Data
+			if err := r.Update(ctx, existingConfigMap); err != nil {
+				return err
+			}
+			log.Info("Updated SSH public key ConfigMap", "name", configMap.Name)
 		}
 	}
 
@@ -273,6 +284,23 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 		terminationGracePeriod = *sandbox.Spec.TerminationGracePeriodSeconds
 	}
 
+	// Set default service account if not specified
+	serviceAccountName := sandbox.Spec.ServiceAccountName
+	if serviceAccountName == "" {
+		serviceAccountName = "default"
+	}
+
+	// Set default image pull policy if not specified
+	imagePullPolicy := sandbox.Spec.ImagePullPolicy
+	if imagePullPolicy == "" {
+		// Default to Always if image tag is :latest, otherwise IfNotPresent
+		if strings.HasSuffix(image, ":latest") || !strings.Contains(image, ":") {
+			imagePullPolicy = corev1.PullAlways
+		} else {
+			imagePullPolicy = corev1.PullIfNotPresent
+		}
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("sandbox-%s", sandbox.Name),
@@ -283,7 +311,7 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 			},
 		},
 		Spec: corev1.PodSpec{
-			ServiceAccountName:            sandbox.Spec.ServiceAccountName,
+			ServiceAccountName:            serviceAccountName,
 			NodeSelector:                  sandbox.Spec.NodeSelector,
 			Affinity:                      sandbox.Spec.Affinity,
 			Tolerations:                   sandbox.Spec.Tolerations,
@@ -291,8 +319,9 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 			TerminationGracePeriodSeconds: &terminationGracePeriod,
 			Containers: []corev1.Container{
 				{
-					Name:  "sandbox",
-					Image: image,
+					Name:            "sandbox",
+					Image:           image,
+					ImagePullPolicy: imagePullPolicy,
 					Ports: []corev1.ContainerPort{
 						{
 							Name:          "ssh",
@@ -304,6 +333,7 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 						{
 							Name:      sshConfigVolumeName,
 							MountPath: sshConfigMountPath,
+							ReadOnly:  true,
 						},
 					},
 				},
@@ -363,21 +393,29 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 	err := r.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, existingPod)
 	if err != nil {
 		if errors.IsNotFound(err) {
+			// Pod doesn't exist, create it
 			if err := r.Create(ctx, pod); err != nil {
+				if errors.IsAlreadyExists(err) {
+					// Pod was created between Get and Create, this is ok
+					log.Info("Pod was created concurrently, continuing", "pod", pod.Name)
+					return nil
+				}
 				return err
 			}
+			log.Info("Successfully created sandbox pod", "pod", pod.Name)
 		} else {
 			return err
 		}
 	} else {
-		if !podSpecEqual(existingPod, pod) {
-			if err := r.Delete(ctx, existingPod); err != nil {
-				return err
-			}
-			if err := r.Create(ctx, pod); err != nil {
-				return err
-			}
+		// Pod already exists
+		// Check if pod is being deleted
+		if existingPod.GetDeletionTimestamp() != nil {
+			log.Info("Existing pod is being deleted, waiting for deletion to complete", "pod", pod.Name)
+			return nil
 		}
+
+		// Pod exists, don't recreate even if spec changed (immutable resource)
+		log.V(1).Info("Pod already exists", "pod", pod.Name)
 	}
 
 	return nil
@@ -385,7 +423,9 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 
 func (r *SandboxReconciler) updateSandboxStatus(ctx context.Context, sandbox *kubeparkv1alpha1.Sandbox) error {
 	log := logf.FromContext(ctx)
-	log.Info("Updating Sandbox status", "namespace", sandbox.Namespace, "name", sandbox.Name)
+
+	// Save the original status for comparison
+	originalStatus := sandbox.Status.DeepCopy()
 
 	pod := &corev1.Pod{}
 	podName := fmt.Sprintf("sandbox-%s", sandbox.Name)
@@ -394,7 +434,12 @@ func (r *SandboxReconciler) updateSandboxStatus(ctx context.Context, sandbox *ku
 		if errors.IsNotFound(err) {
 			sandbox.Status.Phase = kubeparkv1alpha1.SandboxPending
 			sandbox.Status.Message = "Sandbox pod not found"
-			return r.Status().Update(ctx, sandbox)
+			// Only update if status has changed
+			if !statusEqual(originalStatus, &sandbox.Status) {
+				log.Info("Updating Sandbox status", "namespace", sandbox.Namespace, "name", sandbox.Name, "phase", sandbox.Status.Phase)
+				return r.Status().Update(ctx, sandbox)
+			}
+			return nil
 		}
 		return err
 	}
@@ -429,18 +474,45 @@ func (r *SandboxReconciler) updateSandboxStatus(ctx context.Context, sandbox *ku
 		sandbox.Status.Message = fmt.Sprintf("Unknown pod phase: %s", pod.Status.Phase)
 	}
 
-	return r.Status().Update(ctx, sandbox)
+	// Only update if status has changed
+	if !statusEqual(originalStatus, &sandbox.Status) {
+		log.Info("Updating Sandbox status", "namespace", sandbox.Namespace, "name", sandbox.Name, "phase", sandbox.Status.Phase)
+		return r.Status().Update(ctx, sandbox)
+	}
+
+	return nil
 }
 
-func podSpecEqual(pod1, pod2 *corev1.Pod) bool {
-	return pod1.Spec.ServiceAccountName == pod2.Spec.ServiceAccountName &&
-		pod1.Spec.HostNetwork == pod2.Spec.HostNetwork
+func statusEqual(s1, s2 *kubeparkv1alpha1.SandboxStatus) bool {
+	if s1 == nil && s2 == nil {
+		return true
+	}
+	if s1 == nil || s2 == nil {
+		return false
+	}
+
+	// Compare phase and message
+	if s1.Phase != s2.Phase || s1.Message != s2.Message {
+		return false
+	}
+
+	// Compare timestamps
+	if (s1.StartedAt == nil) != (s2.StartedAt == nil) {
+		return false
+	}
+	if (s1.FinishedAt == nil) != (s2.FinishedAt == nil) {
+		return false
+	}
+
+	return true
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *SandboxReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kubeparkv1alpha1.Sandbox{}).
+		Owns(&corev1.Pod{}).
+		Owns(&corev1.ConfigMap{}).
 		Named("sandbox").
 		Complete(r)
 }
