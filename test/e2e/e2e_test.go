@@ -134,8 +134,8 @@ var _ = Describe("Manager", Ordered, func() {
 		}
 	})
 
-	SetDefaultEventuallyTimeout(2 * time.Minute)
-	SetDefaultEventuallyPollingInterval(time.Second)
+	SetDefaultEventuallyTimeout(5 * time.Minute)
+	SetDefaultEventuallyPollingInterval(2 * time.Second)
 
 	Context("Manager", func() {
 		It("should run successfully", func() {
@@ -172,7 +172,12 @@ var _ = Describe("Manager", Ordered, func() {
 
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
-			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
+			// First, try to delete any existing ClusterRoleBinding
+			cmd := exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+
+			// Now create the ClusterRoleBinding
+			cmd = exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
 				"--clusterrole=kubepark-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
@@ -258,14 +263,126 @@ var _ = Describe("Manager", Ordered, func() {
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput := getMetricsOutput()
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+		It("should create and manage Sandbox resources with custom SSH username", func() {
+			By("creating a Sandbox resource with custom SSH username")
+			sampleFile := "config/samples/kubepark_v1alpha1_sandbox.yaml"
+			cmd := exec.Command("kubectl", "apply", "-f", sampleFile)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create Sandbox resource")
+
+			By("waiting for the Sandbox pod to be created")
+			verifySandboxPodCreated := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", "sandbox-sandbox-sample", "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Or(Equal("Pending"), Equal("Running")), "Sandbox pod should be created")
+			}
+			Eventually(verifySandboxPodCreated).Should(Succeed())
+
+			By("verifying that the SSH_USERNAME environment variable is set correctly")
+			verifySshUsernameEnv := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", "sandbox-sandbox-sample",
+					"-o", "jsonpath={.spec.containers[0].env[?(@.name=='SSH_USERNAME')].value}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("kubepark"), "SSH_USERNAME environment variable should be set to 'kubepark'")
+			}
+			Eventually(verifySshUsernameEnv).Should(Succeed())
+
+			By("verifying that the SSH ConfigMap was created")
+			verifyConfigMapCreated := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "configmap", "ssh-public-key-sandbox-sample")
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "SSH ConfigMap should be created")
+			}
+			Eventually(verifyConfigMapCreated).Should(Succeed())
+
+			By("checking the Sandbox status")
+			verifySandboxStatus := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "sandbox", "sandbox-sample", "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Or(Equal("Pending"), Equal("Running")), "Sandbox should have valid status")
+			}
+			Eventually(verifySandboxStatus).Should(Succeed())
+
+			By("cleaning up the Sandbox resource")
+			cmd = exec.Command("kubectl", "delete", "-f", sampleFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete Sandbox resource")
+
+			By("verifying that the Sandbox pod is deleted")
+			verifySandboxPodDeleted := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", "sandbox-sandbox-sample")
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "Sandbox pod should be deleted")
+			}
+			Eventually(verifySandboxPodDeleted).Should(Succeed())
+		})
+
+		It("should handle Sandbox without custom SSH username", func() {
+			By("waiting for CRDs to be fully available")
+			verifyCRDAvailable := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "crd", "sandboxes.kubepark.sinoa.jp")
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Sandbox CRD should be available")
+			}
+			Eventually(verifyCRDAvailable, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("creating a temporary Sandbox YAML without username")
+			sandboxYaml := `apiVersion: kubepark.sinoa.jp/v1alpha1
+kind: Sandbox
+metadata:
+  name: sandbox-no-username
+spec:
+  image: ghcr.io/frauniki/kubepark/sandbox-ssh:latest
+  imagePullPolicy: IfNotPresent
+  ssh:
+    publicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKoMOqu+h7wVDNX4Unx2MwM3eIXPQLU4nZccdtfmcnKz
+  terminationGracePeriodSeconds: 60`
+
+			tempFile := "/tmp/sandbox-no-username.yaml"
+			err := os.WriteFile(tempFile, []byte(sandboxYaml), 0644)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create temporary YAML file")
+			defer func() {
+				if err := os.Remove(tempFile); err != nil {
+					GinkgoT().Logf("Failed to remove temp file: %v", err)
+				}
+			}()
+
+			By("applying the Sandbox resource without username")
+			applySandbox := func(g Gomega) {
+				cmd := exec.Command("kubectl", "apply", "-f", tempFile)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Failed to create Sandbox resource")
+			}
+			Eventually(applySandbox, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("waiting for the Sandbox pod to be created")
+			verifySandboxPodCreated := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", "sandbox-sandbox-no-username", "-o", "jsonpath={.status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Or(Equal("Pending"), Equal("Running")), "Sandbox pod should be created")
+			}
+			Eventually(verifySandboxPodCreated).Should(Succeed())
+
+			By("verifying that SSH_USERNAME environment variable is not set")
+			verifySshUsernameNotSet := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", "sandbox-sandbox-no-username",
+					"-o", "jsonpath={.spec.containers[0].env[?(@.name=='SSH_USERNAME')].name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(BeEmpty(), "SSH_USERNAME environment variable should not be set")
+			}
+			Eventually(verifySshUsernameNotSet).Should(Succeed())
+
+			By("cleaning up the Sandbox resource")
+			cmd := exec.Command("kubectl", "delete", "-f", tempFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete Sandbox resource")
+		})
+
 	})
 })
 

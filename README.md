@@ -22,8 +22,9 @@ To access a running sandbox environment, you can use `kubectl port-forward` to f
 # Forward the SSH port from the sandbox pod to your local machine
 kubectl port-forward pod/sandbox-<sandbox-name> 2222:22 -n <namespace>
 
-# Connect to the sandbox using SSH
-ssh -p 2222 sandbox@localhost
+# Connect to the sandbox using SSH with the specified username
+# Replace 'myuser' with the username specified in the Sandbox resource (defaults to 'sandbox')
+ssh -p 2222 myuser@localhost
 ```
 
 Make sure you have the corresponding private key for the SSH public key that was specified in the Sandbox resource.
@@ -40,11 +41,12 @@ metadata:
 spec:
   image: kubepark/sandbox-ssh:latest
   ssh:
+    username: myuser
     publicKey: "ssh-rsa AAAAB3NzaC1yc2E... user@example.com"
   terminationGracePeriodSeconds: 60
 ```
 
-This will create a sandbox environment using the specified image and SSH public key. When the Sandbox resource is deleted, the controller will wait for 60 seconds before terminating the pod.
+This will create a sandbox environment using the specified image, SSH username, and SSH public key. The `ssh.username` field allows you to customize the username for SSH access (defaults to "sandbox" if not specified). When the Sandbox resource is deleted, the controller will wait for 60 seconds before terminating the pod.
 
 ### To Deploy on the cluster
 **Build and push your image to the location specified by `IMG`:**
@@ -166,4 +168,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-

@@ -68,8 +68,12 @@ type SandboxSpec struct {
 
 // SSHConfig defines the SSH configuration for the sandbox.
 type SSHConfig struct {
+	// Username is the SSH username to use for accessing the sandbox.
+	// Defaults to "sandbox" if not specified.
+	Username string `json:"username,omitempty" protobuf:"bytes,1,opt,name=username"`
+
 	// PublicKey is the SSH public key to use for accessing the sandbox.
-	PublicKey string `json:"publicKey,omitempty" protobuf:"bytes,1,opt,name=publicKey"`
+	PublicKey string `json:"publicKey,omitempty" protobuf:"bytes,2,opt,name=publicKey"`
 }
 
 type SandboxTemplateRef struct {

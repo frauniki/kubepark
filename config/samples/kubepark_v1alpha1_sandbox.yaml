@@ -7,7 +7,8 @@ metadata:
   name: sandbox-sample
 spec:
   image: ghcr.io/frauniki/kubepark/sandbox-ssh:latest
-  imagePullPolicy: Always
+  imagePullPolicy: IfNotPresent
   ssh:
+    username: kubepark
     publicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKoMOqu+h7wVDNX4Unx2MwM3eIXPQLU4nZccdtfmcnKz
   terminationGracePeriodSeconds: 60

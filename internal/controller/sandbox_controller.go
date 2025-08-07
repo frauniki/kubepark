@@ -35,6 +35,8 @@ import (
 	kubeparkv1alpha1 "github.com/frauniki/kubepark/api/v1alpha1"
 )
 
+const SSHUsernameEnvVar = "SSH_USERNAME"
+
 const (
 	defaultSandboxImage                  = "kubepark/sandbox-ssh:latest"
 	defaultTerminationGracePeriodSeconds = int64(30)
@@ -301,6 +303,15 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 		}
 	}
 
+	// Prepare environment variables for the container
+	var envVars []corev1.EnvVar
+	if sandbox.Spec.SSH != nil && sandbox.Spec.SSH.Username != "" {
+		envVars = append(envVars, corev1.EnvVar{
+			Name:  SSHUsernameEnvVar,
+			Value: sandbox.Spec.SSH.Username,
+		})
+	}
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("sandbox-%s", sandbox.Name),
@@ -322,6 +333,7 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 					Name:            "sandbox",
 					Image:           image,
 					ImagePullPolicy: imagePullPolicy,
+					Env:             envVars,
 					Ports: []corev1.ContainerPort{
 						{
 							Name:          "ssh",
