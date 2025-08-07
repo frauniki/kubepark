@@ -331,7 +331,11 @@ spec:
 			tempFile := "/tmp/sandbox-no-username.yaml"
 			err := os.WriteFile(tempFile, []byte(sandboxYaml), 0644)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create temporary YAML file")
-			defer os.Remove(tempFile)
+			defer func() {
+				if err := os.Remove(tempFile); err != nil {
+					GinkgoT().Logf("Failed to remove temp file: %v", err)
+				}
+			}()
 
 			By("applying the Sandbox resource without username")
 			cmd := exec.Command("kubectl", "apply", "-f", tempFile)

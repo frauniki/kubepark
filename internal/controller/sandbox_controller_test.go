@@ -314,7 +314,7 @@ var _ = Describe("Sandbox Controller", func() {
 				container := pod.Spec.Containers[0]
 				var sshUsernameEnv *corev1.EnvVar
 				for _, env := range container.Env {
-					if env.Name == "SSH_USERNAME" {
+					if env.Name == SSHUsernameEnvVar {
 						sshUsernameEnv = &env
 						break
 					}
@@ -374,7 +374,7 @@ var _ = Describe("Sandbox Controller", func() {
 				// Check that SSH_USERNAME environment variable is not set
 				container := pod.Spec.Containers[0]
 				for _, env := range container.Env {
-					Expect(env.Name).NotTo(Equal("SSH_USERNAME"))
+					Expect(env.Name).NotTo(Equal(SSHUsernameEnvVar))
 				}
 			})
 
@@ -430,7 +430,7 @@ var _ = Describe("Sandbox Controller", func() {
 				// Check that SSH_USERNAME environment variable is not set for empty username
 				container := pod.Spec.Containers[0]
 				for _, env := range container.Env {
-					Expect(env.Name).NotTo(Equal("SSH_USERNAME"))
+					Expect(env.Name).NotTo(Equal(SSHUsernameEnvVar))
 				}
 			})
 
@@ -487,7 +487,7 @@ var _ = Describe("Sandbox Controller", func() {
 				container := pod.Spec.Containers[0]
 				var sshUsernameEnv *corev1.EnvVar
 				for _, env := range container.Env {
-					if env.Name == "SSH_USERNAME" {
+					if env.Name == SSHUsernameEnvVar {
 						sshUsernameEnv = &env
 						break
 					}
@@ -550,7 +550,7 @@ var _ = Describe("Sandbox Controller", func() {
 				container := pod.Spec.Containers[0]
 				var sshUsernameEnv *corev1.EnvVar
 				for _, env := range container.Env {
-					if env.Name == "SSH_USERNAME" {
+					if env.Name == SSHUsernameEnvVar {
 						sshUsernameEnv = &env
 						break
 					}
@@ -612,7 +612,7 @@ var _ = Describe("Sandbox Controller", func() {
 				container := pod.Spec.Containers[0]
 				var sshUsernameEnv *corev1.EnvVar
 				for _, env := range container.Env {
-					if env.Name == "SSH_USERNAME" {
+					if env.Name == SSHUsernameEnvVar {
 						sshUsernameEnv = &env
 						break
 					}
@@ -699,7 +699,7 @@ var _ = Describe("Sandbox Controller", func() {
 				container := pod.Spec.Containers[0]
 				var sshUsernameEnv *corev1.EnvVar
 				for _, env := range container.Env {
-					if env.Name == "SSH_USERNAME" {
+					if env.Name == SSHUsernameEnvVar {
 						sshUsernameEnv = &env
 						break
 					}
@@ -781,7 +781,7 @@ var _ = Describe("Sandbox Controller", func() {
 				container := pod.Spec.Containers[0]
 				var sshUsernameEnv *corev1.EnvVar
 				for _, env := range container.Env {
-					if env.Name == "SSH_USERNAME" {
+					if env.Name == SSHUsernameEnvVar {
 						sshUsernameEnv = &env
 						break
 					}
