@@ -48,7 +48,7 @@ k8s_yaml(kustomize("./config/dev"))
 local_resource(
     "Watch & Compile",
     generate() + binary(),
-    deps=["controllers", "api", "pkg", "cmd/main.go"],
+    deps=["controllers", "api", "internal", "pkg", "cmd/main.go"],
     ignore=["*/*/zz_generated.deepcopy.go"],
 )
 docker_build_with_restart(
@@ -68,8 +68,8 @@ local_resource(
     deps=["./config/samples/kubepark_v1alpha1_sandbox.yaml"],
 )
 
-local_resource(
-    "SamdboxTemplate Sample",
-    "kubectl apply -f ./config/samples/kubepark_v1alpha1_sandboxtemplate.yaml",
-    deps=["./config/samples/kubepark_v1alpha1_sandboxtemplate.yaml"],
-)
+# local_resource(
+#    "SamdboxTemplate Sample",
+#    "kubectl apply -f ./config/samples/kubepark_v1alpha1_sandboxtemplate.yaml",
+#    deps=["./config/samples/kubepark_v1alpha1_sandboxtemplate.yaml"],
+# )
