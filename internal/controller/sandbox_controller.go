@@ -112,16 +112,9 @@ func (r *SandboxReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	podRecreated, err := r.reconcileSandboxPod(ctx, sandbox)
-	if err != nil {
+	if err := r.reconcileSandboxPod(ctx, sandbox); err != nil {
 		log.Error(err, "Failed to reconcile sandbox pod")
 		return ctrl.Result{}, err
-	}
-
-	// If pod was deleted for recreation, requeue to create it
-	if podRecreated {
-		log.Info("Pod was deleted for recreation, requeueing")
-		return ctrl.Result{RequeueAfter: time.Second * 2}, nil
 	}
 
 	if err := r.updateSandboxStatus(ctx, sandbox); err != nil {
@@ -275,7 +268,7 @@ func (r *SandboxReconciler) reconcileSSHPublicKeyConfigMap(ctx context.Context, 
 	return nil
 }
 
-func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *kubeparkv1alpha1.Sandbox) (bool, error) {
+func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *kubeparkv1alpha1.Sandbox) error {
 	log := logf.FromContext(ctx)
 	log.Info("Reconciling sandbox pod", "namespace", sandbox.Namespace, "name", sandbox.Name)
 
@@ -393,7 +386,7 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 	}
 
 	if err := controllerutil.SetControllerReference(sandbox, pod, r.Scheme); err != nil {
-		return false, err
+		return err
 	}
 
 	existingPod := &corev1.Pod{}
@@ -405,27 +398,27 @@ func (r *SandboxReconciler) reconcileSandboxPod(ctx context.Context, sandbox *ku
 				if errors.IsAlreadyExists(err) {
 					// Pod was created between Get and Create, this is ok
 					log.Info("Pod was created concurrently, continuing", "pod", pod.Name)
-					return false, nil
+					return nil
 				}
-				return false, err
+				return err
 			}
 			log.Info("Successfully created sandbox pod", "pod", pod.Name)
 		} else {
-			return false, err
+			return err
 		}
 	} else {
 		// Pod already exists
 		// Check if pod is being deleted
 		if existingPod.GetDeletionTimestamp() != nil {
 			log.Info("Existing pod is being deleted, waiting for deletion to complete", "pod", pod.Name)
-			return false, nil
+			return nil
 		}
 
 		// Pod exists, don't recreate even if spec changed (immutable resource)
 		log.V(1).Info("Pod already exists", "pod", pod.Name)
 	}
 
-	return false, nil
+	return nil
 }
 
 func (r *SandboxReconciler) updateSandboxStatus(ctx context.Context, sandbox *kubeparkv1alpha1.Sandbox) error {
