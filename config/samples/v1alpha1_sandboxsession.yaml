@@ -1,0 +1,9 @@
+apiVersion: kubepark.dev/v1alpha1
+kind: SandboxSession
+metadata:
+  labels:
+    app.kubernetes.io/name: kubepark
+    app.kubernetes.io/managed-by: kustomize
+  name: sandboxsession-sample
+spec:
+  # TODO(user): Add fields here

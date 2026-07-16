@@ -1,0 +1,41 @@
+---
+title: kubepark
+description: Persistent, declarative sandboxes for Kubernetes.
+template: splash
+hero:
+  tagline: >-
+    Sandboxes as persistent, declarative resources — state, permissions and
+    reachability that outlive any single Pod.
+  actions:
+    - text: Quickstart
+      link: /kubepark/getting-started/quickstart/
+      icon: right-arrow
+      variant: primary
+    - text: GitHub
+      link: https://github.com/frauniki/kubepark
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+	<Card title="Sandbox as a resource" icon="seti:kubernetes">
+		A Sandbox is a long-lived CRD, not a Pod. Pods are disposable executors;
+		the home PVC, RBAC grants and gateway route survive them.
+	</Card>
+	<Card title="Permissions as data" icon="approve-check">
+		AccessProfiles declare what a sandbox may do in the cluster. The operator
+		translates them into ServiceAccounts and RBAC, bound to the owner's
+		identity for auditing.
+	</Card>
+	<Card title="One gateway in" icon="rocket">
+		A single SSH/HTTP gateway authenticates short-lived, OIDC-issued SSH
+		certificates and routes to the right sandbox — ssh, scp, VS Code
+		Remote-SSH and port-forwarding all work through one ProxyJump line.
+	</Card>
+	<Card title="Suspend when idle" icon="moon">
+		Idle sandboxes are suspended (Pod deleted, home kept) and resume
+		automatically on the next connection.
+	</Card>
+</CardGrid>

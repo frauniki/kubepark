@@ -1,0 +1,72 @@
+# Operator RBAC. Rules mirror the kubebuilder markers in
+# internal/controller/*_controller.go (source of truth: config/rbac/role.yaml).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kubepark.fullname" . }}-operator
+  labels:
+    {{- include "kubepark.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [kubepark.dev]
+    resources: [accessprofiles, sandboxes, sandboxsessions]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [kubepark.dev]
+    resources: [sandboxtemplates]
+    verbs: [get, list, watch]
+  - apiGroups: [kubepark.dev]
+    resources: [accessprofiles/finalizers, sandboxes/finalizers, sandboxsessions/finalizers]
+    verbs: [update]
+  - apiGroups: [kubepark.dev]
+    resources: [accessprofiles/status, sandboxes/status, sandboxsessions/status]
+    verbs: [get, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubepark.fullname" . }}-operator
+  labels:
+    {{- include "kubepark.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kubepark.fullname" . }}-operator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubepark.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.leaderElection }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kubepark.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubepark.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kubepark.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kubepark.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kubepark.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubepark.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

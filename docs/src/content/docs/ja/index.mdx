@@ -1,0 +1,40 @@
+---
+title: kubepark
+description: Kubernetes のための永続的・宣言的なサンドボックス。
+template: splash
+hero:
+  tagline: >-
+    Sandbox を永続的な宣言的リソースとして扱う — 状態・権限・到達経路は
+    どの Pod よりも長生きする。
+  actions:
+    - text: クイックスタート
+      link: /kubepark/ja/getting-started/quickstart/
+      icon: right-arrow
+      variant: primary
+    - text: GitHub
+      link: https://github.com/frauniki/kubepark
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+	<Card title="リソースとしての Sandbox" icon="seti:kubernetes">
+		Sandbox は Pod ではなく長寿命の CRD。Pod は使い捨ての実行体であり、
+		ホーム PVC・RBAC・ゲートウェイ経路は Pod を越えて維持される。
+	</Card>
+	<Card title="データとしての権限" icon="approve-check">
+		AccessProfile が sandbox に許可されるクラスタ操作を宣言し、オペレーターが
+		ServiceAccount と RBAC に翻訳。所有者の identity に紐づけて監査できる。
+	</Card>
+	<Card title="入口はゲートウェイひとつ" icon="rocket">
+		単一の SSH/HTTP ゲートウェイが OIDC 発行の短命 SSH 証明書を認証して
+		各 sandbox へルーティング。ssh・scp・VS Code Remote-SSH・port-forward が
+		ProxyJump 1 行で動く。
+	</Card>
+	<Card title="アイドル時は自動サスペンド" icon="moon">
+		アイドルな sandbox は Pod を削除しホームを保持したままサスペンドされ、
+		次の接続で自動的に復帰する。
+	</Card>
+</CardGrid>

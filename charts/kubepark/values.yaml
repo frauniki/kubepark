@@ -1,0 +1,40 @@
+image:
+  repository: ghcr.io/frauniki/kubepark
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+replicas: 1
+
+crds:
+  # Install/upgrade the CRDs with the chart. CRDs are templated (not in the
+  # special crds/ directory) so `helm upgrade` rolls schema changes.
+  enabled: true
+  # Annotate CRDs with helm.sh/resource-policy: keep so `helm uninstall`
+  # leaves them (and all Sandboxes) in place.
+  keep: true
+
+serviceAccount:
+  create: true
+  # Defaults to the fullname.
+  name: ""
+
+leaderElection: true
+
+metrics:
+  enabled: false
+  # Secure serving via controller-runtime with authn/authz.
+  bindAddress: ":8443"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

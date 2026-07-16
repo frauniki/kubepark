@@ -1,0 +1,12 @@
+apiVersion: v2
+name: kubepark
+description: >-
+  kubepark operator and gateway: persistent, declarative sandboxes for
+  Kubernetes via Sandbox / SandboxTemplate / AccessProfile CRDs, reached
+  through a certificate-authenticated SSH/HTTP gateway.
+type: application
+version: 0.1.0 # x-release-please-version
+appVersion: "0.1.0" # x-release-please-version
+home: https://github.com/frauniki/kubepark
+sources:
+  - https://github.com/frauniki/kubepark
