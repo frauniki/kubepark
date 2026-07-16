@@ -11,13 +11,25 @@ spec:
     kind: AccessProfile
     listKind: AccessProfileList
     plural: accessprofiles
+    shortNames:
+    - ap
     singular: accessprofile
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=="Valid")].status
+      name: Valid
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: AccessProfile is the Schema for the accessprofiles API
+        description: |-
+          AccessProfile declares which Kubernetes operations a sandbox may perform.
+          The controller translates it into a per-namespace Role plus a per-sandbox
+          RoleBinding for the sandbox's ServiceAccount.
         properties:
           apiVersion:
             description: |-
@@ -39,25 +51,102 @@ spec:
           spec:
             description: spec defines the desired state of AccessProfile
             properties:
-              foo:
-                description: foo is an example field of AccessProfile. Edit accessprofile_types.go
-                  to remove/update
-                type: string
+              allowedNamespaces:
+                description: |-
+                  AllowedNamespaces is the explicit list of namespaces whose Sandboxes
+                  may reference this profile. A Sandbox in any other namespace is
+                  refused (RBACReady=False, reason ProfileNotPermitted). Empty means no
+                  namespace may use the profile — referencing, not creation, is the
+                  escalation surface, so the default is deny.
+                items:
+                  type: string
+                type: array
+              grants:
+                description: |-
+                  Grants are the permissions this profile bestows on a sandbox's
+                  ServiceAccount.
+                items:
+                  description: |-
+                    NamespacedGrant grants RBAC rules in an explicit list of namespaces.
+                    v1 deliberately supports namespaced grants only (no cluster-wide rules).
+                  properties:
+                    namespaces:
+                      description: |-
+                        Namespaces is the explicit list of namespaces the rules apply in.
+                        Wildcards are not supported.
+                      items:
+                        type: string
+                      minItems: 1
+                      type: array
+                    rules:
+                      description: |-
+                        Rules are standard RBAC policy rules, applied verbatim as a Role in
+                        each listed namespace.
+                      items:
+                        description: |-
+                          PolicyRule holds information that describes a policy rule, but does not contain information
+                          about who the rule applies to or which namespace the rule applies to.
+                        properties:
+                          apiGroups:
+                            description: |-
+                              APIGroups is the name of the APIGroup that contains the resources.  If multiple API groups are specified, any action requested against one of
+                              the enumerated resources in any API group will be allowed. "" represents the core API group and "*" represents all API groups.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          nonResourceURLs:
+                            description: |-
+                              NonResourceURLs is a set of partial urls that a user should have access to.  *s are allowed, but only as the full, final step in the path
+                              Since non-resource URLs are not namespaced, this field is only applicable for ClusterRoles referenced from a ClusterRoleBinding.
+                              Rules can either apply to API resources (such as "pods" or "secrets") or non-resource URL paths (such as "/api"),  but not both.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          resourceNames:
+                            description: ResourceNames is an optional white list of
+                              names that the rule applies to.  An empty set means
+                              that everything is allowed.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          resources:
+                            description: Resources is a list of resources this rule
+                              applies to. '*' represents all resources.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          verbs:
+                            description: Verbs is a list of Verbs that apply to ALL
+                              the ResourceKinds contained in this rule. '*' represents
+                              all verbs.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        required:
+                        - verbs
+                        type: object
+                      minItems: 1
+                      type: array
+                  required:
+                  - namespaces
+                  - rules
+                  type: object
+                minItems: 1
+                type: array
+            required:
+            - grants
             type: object
           status:
             description: status defines the observed state of AccessProfile
             properties:
               conditions:
-                description: |-
-                  conditions represent the current state of the AccessProfile resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: conditions represent the current state of the AccessProfile
+                  resource.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -116,6 +205,9 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              observedGeneration:
+                format: int64
+                type: integer
             type: object
         required:
         - spec

@@ -17,41 +17,98 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// IsolationLevel selects how strongly the sandbox pod is isolated from the
+// node.
+// +kubebuilder:validation:Enum=standard;strong
+type IsolationLevel string
 
-// SandboxTemplateSpec defines the desired state of SandboxTemplate
-type SandboxTemplateSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+const (
+	// IsolationStandard uses the baseline: non-root, seccomp RuntimeDefault,
+	// per-sandbox NetworkPolicy.
+	IsolationStandard IsolationLevel = "standard"
+	// IsolationStrong additionally runs the pod under the template's
+	// RuntimeClass (e.g. gVisor or Kata).
+	IsolationStrong IsolationLevel = "strong"
+)
 
-	// foo is an example field of SandboxTemplate. Edit sandboxtemplate_types.go to remove/update
+// EgressRule is a small vocabulary mapping 1:1 onto a
+// NetworkPolicyEgressRule. Template egress is additive on top of the
+// built-in allowances (DNS and the Kubernetes API server).
+type EgressRule struct {
+	// To lists the destinations this rule allows.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	To []networkingv1.NetworkPolicyPeer `json:"to,omitempty"`
+
+	// Ports restricts the rule to specific ports.
+	// +optional
+	Ports []networkingv1.NetworkPolicyPort `json:"ports,omitempty"`
+}
+
+// SandboxTemplateSpec defines the desired state of SandboxTemplate.
+// +kubebuilder:validation:XValidation:rule="self.isolationLevel != 'strong' || (has(self.runtimeClassName) && size(self.runtimeClassName) > 0)",message="isolationLevel strong requires runtimeClassName"
+type SandboxTemplateSpec struct {
+	// Image is the sandbox container image. Its ENTRYPOINT is not used: the
+	// operator wraps Command with the kubepark agent (see Command).
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image"`
+
+	// Command is the long-running main process, executed as a child of the
+	// kubepark agent (which is PID 1). If empty, the agent runs alone and
+	// spawns a login shell per connection.
+	// +optional
+	Command []string `json:"command,omitempty"`
+
+	// Env is added to the sandbox container.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// Resources are the container resource requirements.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// IsolationLevel defaults to standard.
+	// +optional
+	// +kubebuilder:default=standard
+	IsolationLevel IsolationLevel `json:"isolationLevel,omitempty"`
+
+	// RuntimeClassName is required when isolationLevel is strong.
+	// +optional
+	RuntimeClassName *string `json:"runtimeClassName,omitempty"`
+
+	// HomeSize is the default size of the per-sandbox home PVC.
+	HomeSize resource.Quantity `json:"homeSize"`
+
+	// StorageClassName is the default storage class for home PVCs.
+	// +optional
+	StorageClassName *string `json:"storageClassName,omitempty"`
+
+	// Egress is rendered into the sandbox NetworkPolicy in addition to the
+	// built-in DNS and API-server allowances. Everything else is denied.
+	// +optional
+	Egress []EgressRule `json:"egress,omitempty"`
+
+	// DefaultIdleTimeout applies to sandboxes that do not set idleTimeout.
+	// Zero or unset disables idle suspension by default.
+	// +optional
+	DefaultIdleTimeout *metav1.Duration `json:"defaultIdleTimeout,omitempty"`
+
+	// RunAsUser is the UID of the sandbox user. Defaults to 1000; root is
+	// not allowed.
+	// +optional
+	// +kubebuilder:default=1000
+	// +kubebuilder:validation:Minimum=1
+	RunAsUser *int64 `json:"runAsUser,omitempty"`
 }
 
 // SandboxTemplateStatus defines the observed state of SandboxTemplate.
 type SandboxTemplateStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the SandboxTemplate resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
@@ -60,9 +117,14 @@ type SandboxTemplateStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName=sbt
+// +kubebuilder:printcolumn:name="Image",type=string,JSONPath=`.spec.image`
+// +kubebuilder:printcolumn:name="Isolation",type=string,JSONPath=`.spec.isolationLevel`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// SandboxTemplate is the Schema for the sandboxtemplates API
+// SandboxTemplate is an admin-defined sandbox class. All use-case diversity
+// (ops bastion, MLOps client, DB operations) is expressed here; the
+// controller has no use-case-specific logic.
 type SandboxTemplate struct {
 	metav1.TypeMeta `json:",inline"`
 

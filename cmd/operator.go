@@ -78,8 +78,17 @@ func runOperator(args []string) {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var agentImage string
+	var priorityClassName string
+	var gatewayNamespace string
 	var tlsOpts []func(*tls.Config)
 	fs := flag.NewFlagSet("operator", flag.ExitOnError)
+	fs.StringVar(&agentImage, "agent-image", os.Getenv("AGENT_IMAGE"),
+		"Image used by the agent-install init container in sandbox pods (normally this operator's own image).")
+	fs.StringVar(&priorityClassName, "sandbox-priority-class", "",
+		"PriorityClass set on sandbox pods, if any.")
+	fs.StringVar(&gatewayNamespace, "gateway-namespace", "",
+		"Namespace of the kubepark gateway (for sandbox ingress rules). Defaults to the operator namespace.")
 	fs.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -199,8 +208,11 @@ func runOperator(args []string) {
 	}
 
 	if err := (&controller.SandboxReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		AgentImage:        agentImage,
+		PriorityClassName: priorityClassName,
+		GatewayNamespace:  gatewayNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "sandbox")
 		os.Exit(1)

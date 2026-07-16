@@ -15,13 +15,28 @@ spec:
     kind: SandboxTemplate
     listKind: SandboxTemplateList
     plural: sandboxtemplates
+    shortNames:
+    - sbt
     singular: sandboxtemplate
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.image
+      name: Image
+      type: string
+    - jsonPath: .spec.isolationLevel
+      name: Isolation
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SandboxTemplate is the Schema for the sandboxtemplates API
+        description: |-
+          SandboxTemplate is an admin-defined sandbox class. All use-case diversity
+          (ops bastion, MLOps client, DB operations) is expressed here; the
+          controller has no use-case-specific logic.
         properties:
           apiVersion:
             description: |-
@@ -43,25 +58,463 @@ spec:
           spec:
             description: spec defines the desired state of SandboxTemplate
             properties:
-              foo:
-                description: foo is an example field of SandboxTemplate. Edit sandboxtemplate_types.go
-                  to remove/update
+              command:
+                description: |-
+                  Command is the long-running main process, executed as a child of the
+                  kubepark agent (which is PID 1). If empty, the agent runs alone and
+                  spawns a login shell per connection.
+                items:
+                  type: string
+                type: array
+              defaultIdleTimeout:
+                description: |-
+                  DefaultIdleTimeout applies to sandboxes that do not set idleTimeout.
+                  Zero or unset disables idle suspension by default.
                 type: string
+              egress:
+                description: |-
+                  Egress is rendered into the sandbox NetworkPolicy in addition to the
+                  built-in DNS and API-server allowances. Everything else is denied.
+                items:
+                  description: |-
+                    EgressRule is a small vocabulary mapping 1:1 onto a
+                    NetworkPolicyEgressRule. Template egress is additive on top of the
+                    built-in allowances (DNS and the Kubernetes API server).
+                  properties:
+                    ports:
+                      description: Ports restricts the rule to specific ports.
+                      items:
+                        description: NetworkPolicyPort describes a port to allow traffic
+                          on
+                        properties:
+                          endPort:
+                            description: |-
+                              endPort indicates that the range of ports from port to endPort if set, inclusive,
+                              should be allowed by the policy. This field cannot be defined if the port field
+                              is not defined or if the port field is defined as a named (string) port.
+                              The endPort must be equal or greater than port.
+                            format: int32
+                            type: integer
+                          port:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: |-
+                              port represents the port on the given protocol. This can either be a numerical or named
+                              port on a pod. If this field is not provided, this matches all port names and
+                              numbers.
+                              If present, only traffic on the specified protocol AND port will be matched.
+                            x-kubernetes-int-or-string: true
+                          protocol:
+                            description: |-
+                              protocol represents the protocol (TCP, UDP, or SCTP) which traffic must match.
+                              If not specified, this field defaults to TCP.
+                            type: string
+                        type: object
+                      type: array
+                    to:
+                      description: To lists the destinations this rule allows.
+                      items:
+                        description: |-
+                          NetworkPolicyPeer describes a peer to allow traffic to/from. Only certain combinations of
+                          fields are allowed
+                        properties:
+                          ipBlock:
+                            description: |-
+                              ipBlock defines policy on a particular IPBlock. If this field is set then
+                              neither of the other fields can be.
+                            properties:
+                              cidr:
+                                description: |-
+                                  cidr is a string representing the IPBlock
+                                  Valid examples are "192.168.1.0/24" or "2001:db8::/64"
+                                type: string
+                              except:
+                                description: |-
+                                  except is a slice of CIDRs that should not be included within an IPBlock
+                                  Valid examples are "192.168.1.0/24" or "2001:db8::/64"
+                                  Except values will be rejected if they are outside the cidr range
+                                items:
+                                  type: string
+                                type: array
+                                x-kubernetes-list-type: atomic
+                            required:
+                            - cidr
+                            type: object
+                          namespaceSelector:
+                            description: |-
+                              namespaceSelector selects namespaces using cluster-scoped labels. This field follows
+                              standard label selector semantics; if present but empty, it selects all namespaces.
+
+                              If podSelector is also set, then the NetworkPolicyPeer as a whole selects
+                              the pods matching podSelector in the namespaces selected by namespaceSelector.
+                              Otherwise it selects all pods in the namespaces selected by namespaceSelector.
+                            properties:
+                              matchExpressions:
+                                description: matchExpressions is a list of label selector
+                                  requirements. The requirements are ANDed.
+                                items:
+                                  description: |-
+                                    A label selector requirement is a selector that contains values, a key, and an operator that
+                                    relates the key and values.
+                                  properties:
+                                    key:
+                                      description: key is the label key that the selector
+                                        applies to.
+                                      type: string
+                                    operator:
+                                      description: |-
+                                        operator represents a key's relationship to a set of values.
+                                        Valid operators are In, NotIn, Exists and DoesNotExist.
+                                      type: string
+                                    values:
+                                      description: |-
+                                        values is an array of string values. If the operator is In or NotIn,
+                                        the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                        the values array must be empty. This array is replaced during a strategic
+                                        merge patch.
+                                      items:
+                                        type: string
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                  required:
+                                  - key
+                                  - operator
+                                  type: object
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                description: |-
+                                  matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                  map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                  operator is "In", and the values array contains only "value". The requirements are ANDed.
+                                type: object
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          podSelector:
+                            description: |-
+                              podSelector is a label selector which selects pods. This field follows standard label
+                              selector semantics; if present but empty, it selects all pods.
+
+                              If namespaceSelector is also set, then the NetworkPolicyPeer as a whole selects
+                              the pods matching podSelector in the Namespaces selected by NamespaceSelector.
+                              Otherwise it selects the pods matching podSelector in the policy's own namespace.
+                            properties:
+                              matchExpressions:
+                                description: matchExpressions is a list of label selector
+                                  requirements. The requirements are ANDed.
+                                items:
+                                  description: |-
+                                    A label selector requirement is a selector that contains values, a key, and an operator that
+                                    relates the key and values.
+                                  properties:
+                                    key:
+                                      description: key is the label key that the selector
+                                        applies to.
+                                      type: string
+                                    operator:
+                                      description: |-
+                                        operator represents a key's relationship to a set of values.
+                                        Valid operators are In, NotIn, Exists and DoesNotExist.
+                                      type: string
+                                    values:
+                                      description: |-
+                                        values is an array of string values. If the operator is In or NotIn,
+                                        the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                        the values array must be empty. This array is replaced during a strategic
+                                        merge patch.
+                                      items:
+                                        type: string
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                  required:
+                                  - key
+                                  - operator
+                                  type: object
+                                type: array
+                                x-kubernetes-list-type: atomic
+                              matchLabels:
+                                additionalProperties:
+                                  type: string
+                                description: |-
+                                  matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                  map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                  operator is "In", and the values array contains only "value". The requirements are ANDed.
+                                type: object
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        type: object
+                      type: array
+                  type: object
+                type: array
+              env:
+                description: Env is added to the sandbox container.
+                items:
+                  description: EnvVar represents an environment variable present in
+                    a Container.
+                  properties:
+                    name:
+                      description: |-
+                        Name of the environment variable.
+                        May consist of any printable ASCII characters except '='.
+                      type: string
+                    value:
+                      description: |-
+                        Variable references $(VAR_NAME) are expanded
+                        using the previously defined environment variables in the container and
+                        any service environment variables. If a variable cannot be resolved,
+                        the reference in the input string will be unchanged. Double $$ are reduced
+                        to a single $, which allows for escaping the $(VAR_NAME) syntax: i.e.
+                        "$$(VAR_NAME)" will produce the string literal "$(VAR_NAME)".
+                        Escaped references will never be expanded, regardless of whether the variable
+                        exists or not.
+                        Defaults to "".
+                      type: string
+                    valueFrom:
+                      description: Source for the environment variable's value. Cannot
+                        be used if value is not empty.
+                      properties:
+                        configMapKeyRef:
+                          description: Selects a key of a ConfigMap.
+                          properties:
+                            key:
+                              description: The key to select.
+                              type: string
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                            optional:
+                              description: Specify whether the ConfigMap or its key
+                                must be defined
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        fieldRef:
+                          description: |-
+                            Selects a field of the pod: supports metadata.name, metadata.namespace, `metadata.labels['<KEY>']`, `metadata.annotations['<KEY>']`,
+                            spec.nodeName, spec.serviceAccountName, status.hostIP, status.podIP, status.podIPs.
+                          properties:
+                            apiVersion:
+                              description: Version of the schema the FieldPath is
+                                written in terms of, defaults to "v1".
+                              type: string
+                            fieldPath:
+                              description: Path of the field to select in the specified
+                                API version.
+                              type: string
+                          required:
+                          - fieldPath
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        fileKeyRef:
+                          description: |-
+                            FileKeyRef selects a key of the env file.
+                            Requires the EnvFiles feature gate to be enabled.
+                          properties:
+                            key:
+                              description: |-
+                                The key within the env file. An invalid key will prevent the pod from starting.
+                                The keys defined within a source may consist of any printable ASCII characters except '='.
+                                During Alpha stage of the EnvFiles feature gate, the key size is limited to 128 characters.
+                              type: string
+                            optional:
+                              default: false
+                              description: |-
+                                Specify whether the file or its key must be defined. If the file or key
+                                does not exist, then the env var is not published.
+                                If optional is set to true and the specified key does not exist,
+                                the environment variable will not be set in the Pod's containers.
+
+                                If optional is set to false and the specified key does not exist,
+                                an error will be returned during Pod creation.
+                              type: boolean
+                            path:
+                              description: |-
+                                The path within the volume from which to select the file.
+                                Must be relative and may not contain the '..' path or start with '..'.
+                              type: string
+                            volumeName:
+                              description: The name of the volume mount containing
+                                the env file.
+                              type: string
+                          required:
+                          - key
+                          - path
+                          - volumeName
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        resourceFieldRef:
+                          description: |-
+                            Selects a resource of the container: only resources limits and requests
+                            (limits.cpu, limits.memory, limits.ephemeral-storage, requests.cpu, requests.memory and requests.ephemeral-storage) are currently supported.
+                          properties:
+                            containerName:
+                              description: 'Container name: required for volumes,
+                                optional for env vars'
+                              type: string
+                            divisor:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              description: Specifies the output format of the exposed
+                                resources, defaults to "1"
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            resource:
+                              description: 'Required: resource to select'
+                              type: string
+                          required:
+                          - resource
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        secretKeyRef:
+                          description: Selects a key of a secret in the pod's namespace
+                          properties:
+                            key:
+                              description: The key of the secret to select from.  Must
+                                be a valid secret key.
+                              type: string
+                            name:
+                              default: ""
+                              description: |-
+                                Name of the referent.
+                                This field is effectively required, but due to backwards compatibility is
+                                allowed to be empty. Instances of this type with an empty value here are
+                                almost certainly wrong.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              type: string
+                            optional:
+                              description: Specify whether the Secret or its key must
+                                be defined
+                              type: boolean
+                          required:
+                          - key
+                          type: object
+                          x-kubernetes-map-type: atomic
+                      type: object
+                  required:
+                  - name
+                  type: object
+                type: array
+              homeSize:
+                anyOf:
+                - type: integer
+                - type: string
+                description: HomeSize is the default size of the per-sandbox home
+                  PVC.
+                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                x-kubernetes-int-or-string: true
+              image:
+                description: |-
+                  Image is the sandbox container image. Its ENTRYPOINT is not used: the
+                  operator wraps Command with the kubepark agent (see Command).
+                minLength: 1
+                type: string
+              isolationLevel:
+                default: standard
+                description: IsolationLevel defaults to standard.
+                enum:
+                - standard
+                - strong
+                type: string
+              resources:
+                description: Resources are the container resource requirements.
+                properties:
+                  claims:
+                    description: |-
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This field depends on the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              runAsUser:
+                default: 1000
+                description: |-
+                  RunAsUser is the UID of the sandbox user. Defaults to 1000; root is
+                  not allowed.
+                format: int64
+                minimum: 1
+                type: integer
+              runtimeClassName:
+                description: RuntimeClassName is required when isolationLevel is strong.
+                type: string
+              storageClassName:
+                description: StorageClassName is the default storage class for home
+                  PVCs.
+                type: string
+            required:
+            - homeSize
+            - image
             type: object
+            x-kubernetes-validations:
+            - message: isolationLevel strong requires runtimeClassName
+              rule: self.isolationLevel != 'strong' || (has(self.runtimeClassName)
+                && size(self.runtimeClassName) > 0)
           status:
             description: status defines the observed state of SandboxTemplate
             properties:
               conditions:
-                description: |-
-                  conditions represent the current state of the SandboxTemplate resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: conditions represent the current state of the SandboxTemplate
+                  resource.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

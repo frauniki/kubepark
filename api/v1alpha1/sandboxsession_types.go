@@ -20,48 +20,97 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// SessionKind is the transport of a session.
+// +kubebuilder:validation:Enum=ssh;http
+type SessionKind string
 
-// SandboxSessionSpec defines the desired state of SandboxSession
+const (
+	SessionKindSSH  SessionKind = "ssh"
+	SessionKindHTTP SessionKind = "http"
+)
+
+// SessionState is the lifecycle state of a session.
+// +kubebuilder:validation:Enum=Active;Closed
+type SessionState string
+
+const (
+	SessionStateActive SessionState = "Active"
+	SessionStateClosed SessionState = "Closed"
+)
+
+// Session exit reasons.
+const (
+	ExitReasonDisconnected   = "Disconnected"
+	ExitReasonStaleHeartbeat = "StaleHeartbeat"
+	ExitReasonSandboxDeleted = "SandboxDeleted"
+)
+
+// SandboxSessionSpec defines the desired state of SandboxSession.
+// Sessions are created by the gateway, one per authenticated connection
+// (ssh) or per (sandbox, user) sliding window (http). They are the audit
+// record of who reached which sandbox from where.
 type SandboxSessionSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// SandboxName is the sandbox this session connects to (same namespace).
+	// +kubebuilder:validation:MinLength=1
+	SandboxName string `json:"sandboxName"`
 
-	// foo is an example field of SandboxSession. Edit sandboxsession_types.go to remove/update
+	// User is the authenticated identity (SSH certificate principal or OIDC
+	// claim).
+	// +kubebuilder:validation:MinLength=1
+	User string `json:"user"`
+
+	// ClientAddr is the remote address the connection came from.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	ClientAddr string `json:"clientAddr,omitempty"`
+
+	// Kind is ssh or http.
+	Kind SessionKind `json:"kind"`
+
+	// CertSerial is the serial of the SSH certificate used, for joining
+	// with signing audit logs.
+	// +optional
+	CertSerial string `json:"certSerial,omitempty"`
+
+	// HeartbeatInterval is stamped by the gateway at creation so the stale
+	// reaper can compute its threshold without re-deriving the sandbox's
+	// idle timeout.
+	// +optional
+	HeartbeatInterval *metav1.Duration `json:"heartbeatInterval,omitempty"`
 }
 
 // SandboxSessionStatus defines the observed state of SandboxSession.
 type SandboxSessionStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
-	// conditions represent the current state of the SandboxSession resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
-	// +listType=map
-	// +listMapKey=type
+	// State is Active while the connection lives, then Closed.
 	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	State SessionState `json:"state,omitempty"`
+
+	// +optional
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// LastActivityTime is refreshed by gateway heartbeats.
+	// +optional
+	LastActivityTime *metav1.Time `json:"lastActivityTime,omitempty"`
+
+	// +optional
+	EndTime *metav1.Time `json:"endTime,omitempty"`
+
+	// ExitReason records why the session closed (Disconnected,
+	// StaleHeartbeat, SandboxDeleted).
+	// +optional
+	ExitReason string `json:"exitReason,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=sbs
+// +kubebuilder:printcolumn:name="Sandbox",type=string,JSONPath=`.spec.sandboxName`
+// +kubebuilder:printcolumn:name="User",type=string,JSONPath=`.spec.user`
+// +kubebuilder:printcolumn:name="Kind",type=string,JSONPath=`.spec.kind`
+// +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// SandboxSession is the Schema for the sandboxsessions API
+// SandboxSession is the short-lived audit record of one connection to a
+// sandbox through the gateway.
 type SandboxSession struct {
 	metav1.TypeMeta `json:",inline"`
 

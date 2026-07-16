@@ -17,52 +17,73 @@ limitations under the License.
 package v1alpha1
 
 import (
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// NamespacedGrant grants RBAC rules in an explicit list of namespaces.
+// v1 deliberately supports namespaced grants only (no cluster-wide rules).
+type NamespacedGrant struct {
+	// Namespaces is the explicit list of namespaces the rules apply in.
+	// Wildcards are not supported.
+	// +kubebuilder:validation:MinItems=1
+	Namespaces []string `json:"namespaces"`
 
-// AccessProfileSpec defines the desired state of AccessProfile
-type AccessProfileSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// foo is an example field of AccessProfile. Edit accessprofile_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+	// Rules are standard RBAC policy rules, applied verbatim as a Role in
+	// each listed namespace.
+	// +kubebuilder:validation:MinItems=1
+	Rules []rbacv1.PolicyRule `json:"rules"`
 }
+
+// AccessProfileSpec defines the desired state of AccessProfile.
+//
+// AccessProfiles are the trust boundary of kubepark: whoever can create or
+// modify them controls what sandboxes may do in the cluster. Their creation
+// must be restricted to administrators.
+type AccessProfileSpec struct {
+	// Grants are the permissions this profile bestows on a sandbox's
+	// ServiceAccount.
+	// +kubebuilder:validation:MinItems=1
+	Grants []NamespacedGrant `json:"grants"`
+
+	// AllowedNamespaces is the explicit list of namespaces whose Sandboxes
+	// may reference this profile. A Sandbox in any other namespace is
+	// refused (RBACReady=False, reason ProfileNotPermitted). Empty means no
+	// namespace may use the profile — referencing, not creation, is the
+	// escalation surface, so the default is deny.
+	// +optional
+	AllowedNamespaces []string `json:"allowedNamespaces,omitempty"`
+}
+
+// Condition types and reasons for AccessProfile.
+const (
+	ConditionValid = "Valid"
+
+	ReasonValid            = "Valid"
+	ReasonMissingNamespace = "MissingNamespace"
+)
 
 // AccessProfileStatus defines the observed state of AccessProfile.
 type AccessProfileStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
-
 	// conditions represent the current state of the AccessProfile resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName=ap
+// +kubebuilder:printcolumn:name="Valid",type=string,JSONPath=`.status.conditions[?(@.type=="Valid")].status`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// AccessProfile is the Schema for the accessprofiles API
+// AccessProfile declares which Kubernetes operations a sandbox may perform.
+// The controller translates it into a per-namespace Role plus a per-sandbox
+// RoleBinding for the sandbox's ServiceAccount.
 type AccessProfile struct {
 	metav1.TypeMeta `json:",inline"`
 
