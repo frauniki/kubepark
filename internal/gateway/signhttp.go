@@ -26,6 +26,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// defaultPrincipalClaim is the ID-token claim used for the certificate
+// principal when none is configured.
+const defaultPrincipalClaim = "email"
+
 // OIDCConfig configures the OIDC verification the sign endpoint performs.
 type OIDCConfig struct {
 	Issuer   string
@@ -51,7 +55,7 @@ type SignServer struct {
 // NewSignServer builds the sign server, discovering the OIDC provider.
 func NewSignServer(ctx context.Context, signer *Signer, cfg OIDCConfig) (*SignServer, error) {
 	if cfg.PrincipalClaim == "" {
-		cfg.PrincipalClaim = "email"
+		cfg.PrincipalClaim = defaultPrincipalClaim
 	}
 	s := &SignServer{signer: signer, oidc: cfg}
 	if cfg.Issuer != "" {

@@ -51,6 +51,7 @@ type gatewayOptions struct {
 	defaultNamespace string
 	oidcIssuer       string
 	oidcClientID     string
+	oidcClientSecret string
 	principalClaim   string
 	baseDomain       string
 	certTTL          time.Duration
@@ -70,6 +71,8 @@ func newGatewayCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.defaultNamespace, "default-namespace", "", "Namespace assumed when a target omits one.")
 	cmd.Flags().StringVar(&opts.oidcIssuer, "oidc-issuer", "", "OIDC issuer URL (enables kubepark login).")
 	cmd.Flags().StringVar(&opts.oidcClientID, "oidc-client-id", "", "OIDC client ID.")
+	cmd.Flags().StringVar(&opts.oidcClientSecret, "oidc-client-secret", os.Getenv("OIDC_CLIENT_SECRET"),
+		"OIDC client secret for the browser cookie flow (confidential client).")
 	cmd.Flags().StringVar(&opts.principalClaim, "principal-claim", "email", "ID-token claim mapped to the cert principal.")
 	cmd.Flags().StringVar(&opts.baseDomain, "base-domain", "", "Base domain advertised for HTTP routing.")
 	cmd.Flags().DurationVar(&opts.certTTL, "cert-ttl", 8*time.Hour, "Issued certificate validity.")
@@ -124,31 +127,87 @@ func runGateway(ctx context.Context, opts gatewayOptions) error {
 		return err
 	}
 
-	// The sign endpoint (OIDC -> short-lived cert). Only enabled when an
-	// issuer is configured.
-	if opts.oidcIssuer != "" {
-		signer, signErr := gateway.NewSigner(caSecret.Data["user-ca.key"], opts.certTTL)
-		if signErr != nil {
-			return signErr
+	// HTTP plane: the CLI sign endpoints, the browser OIDC cookie flow, and
+	// the exposed-port reverse proxy, all on one listener.
+	httpHandler, err := buildHTTPHandler(ctx, opts, caSecret, mgr.GetClient())
+	if err != nil {
+		return err
+	}
+	if httpHandler != nil {
+		if err := mgr.Add(&httpRunnable{addr: opts.httpAddr, handler: httpHandler}); err != nil {
+			return err
 		}
-		signServer, signErr := gateway.NewSignServer(ctx, signer, gateway.OIDCConfig{
+		fmt.Fprintf(os.Stderr, "kubepark gateway HTTP listening on %s\n", opts.httpAddr)
+	}
+
+	fmt.Fprintf(os.Stderr, "kubepark gateway SSH jump host listening on %s\n", opts.sshAddr)
+	return mgr.Start(ctx)
+}
+
+// buildHTTPHandler assembles the gateway HTTP handler. The sign endpoints
+// and OIDC cookie auth require an issuer; the reverse proxy requires a base
+// domain. Returns nil when neither is configured.
+func buildHTTPHandler(
+	ctx context.Context, opts gatewayOptions, caSecret *corev1.Secret, c client.Client,
+) (http.Handler, error) {
+	store := gateway.NewStore(c)
+
+	var signHandler http.Handler
+	var auth gateway.Authenticator
+	if opts.oidcIssuer != "" {
+		signer, err := gateway.NewSigner(caSecret.Data[controller.KeyUserCAPrivate], opts.certTTL)
+		if err != nil {
+			return nil, err
+		}
+		signServer, err := gateway.NewSignServer(ctx, signer, gateway.OIDCConfig{
 			Issuer:         opts.oidcIssuer,
 			ClientID:       opts.oidcClientID,
 			PrincipalClaim: opts.principalClaim,
 			BaseDomain:     opts.baseDomain,
 			GatewaySSHAddr: opts.sshAddr,
 		})
-		if signErr != nil {
-			return signErr
+		if err != nil {
+			return nil, err
 		}
-		if signErr := mgr.Add(&httpRunnable{addr: opts.httpAddr, handler: signServer.Handler()}); signErr != nil {
-			return signErr
+		signHandler = signServer.Handler()
+
+		if opts.baseDomain != "" {
+			cookieAuth, err := gateway.NewCookieAuthenticator(ctx, opts.oidcIssuer, opts.oidcClientID,
+				opts.oidcClientSecret, "https://"+opts.baseDomain, opts.principalClaim,
+				caSecret.Data[controller.KeyCookieHMAC], opts.certTTL, true)
+			if err != nil {
+				return nil, err
+			}
+			auth = cookieAuth
 		}
-		fmt.Fprintf(os.Stderr, "kubepark gateway sign endpoint listening on %s\n", opts.httpAddr)
 	}
 
-	fmt.Fprintf(os.Stderr, "kubepark gateway SSH jump host listening on %s\n", opts.sshAddr)
-	return mgr.Start(ctx)
+	var proxy http.Handler
+	if opts.baseDomain != "" {
+		proxy = gateway.NewHTTPProxy(gateway.HTTPProxyConfig{
+			BaseDomain: opts.baseDomain,
+			Store:      store,
+			Auth:       auth,
+		})
+	}
+
+	if signHandler == nil && proxy == nil {
+		return nil, nil
+	}
+
+	// Route the CLI sign endpoints by path prefix; everything else (browser
+	// traffic on a sandbox host) goes to the proxy.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if signHandler != nil && (r.URL.Path == "/v1/sign" || r.URL.Path == "/v1/config") {
+			signHandler.ServeHTTP(w, r)
+			return
+		}
+		if proxy != nil {
+			proxy.ServeHTTP(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	}), nil
 }
 
 // gatewayHostKey loads the gateway's own SSH host key Secret, generating it

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"os"
 
@@ -41,6 +42,9 @@ const (
 	KeyUserCAPublic  = "user-ca.pub"
 	KeyHostCAPrivate = "host-ca.key"
 	KeyHostCAPublic  = "host-ca.pub"
+	// KeyCookieHMAC signs browser session cookies; kept with the CA so it is
+	// stable across gateway replicas and restarts.
+	KeyCookieHMAC = "cookie-hmac"
 )
 
 // OperatorNamespace returns the namespace the operator (and gateway) run
@@ -72,6 +76,10 @@ func EnsureCASecret(ctx context.Context, c client.Client, namespace string) (*co
 	if err != nil {
 		return nil, err
 	}
+	hmacKey := make([]byte, 32)
+	if _, err := rand.Read(hmacKey); err != nil {
+		return nil, fmt.Errorf("generate cookie HMAC key: %w", err)
+	}
 	secret = corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      CASecretName,
@@ -83,6 +91,7 @@ func EnsureCASecret(ctx context.Context, c client.Client, namespace string) (*co
 			KeyUserCAPublic:  userCA.PublicAuthorized,
 			KeyHostCAPrivate: hostCA.PrivatePEM,
 			KeyHostCAPublic:  hostCA.PublicAuthorized,
+			KeyCookieHMAC:    hmacKey,
 		},
 	}
 	if err := c.Create(ctx, &secret); err != nil {

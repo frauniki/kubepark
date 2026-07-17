@@ -19,6 +19,7 @@ package gateway
 import "testing"
 
 const sbName = "demo"
+const nsAlice = "alice"
 
 func TestParseSSHTarget(t *testing.T) {
 	cases := []struct {
@@ -28,7 +29,7 @@ func TestParseSSHTarget(t *testing.T) {
 		wantNS    string
 		wantErr   bool
 	}{
-		{in: sbName + ".alice", wantSB: sbName, wantNS: "alice"},
+		{in: sbName + ".alice", wantSB: sbName, wantNS: nsAlice},
 		{in: sbName, defaultNS: "team", wantSB: sbName, wantNS: "team"},
 		{in: sbName, wantErr: true},
 		{in: "", wantErr: true},

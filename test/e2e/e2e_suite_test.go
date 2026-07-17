@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 /*
 Copyright 2026.
@@ -22,7 +21,6 @@ package e2e
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -31,19 +29,25 @@ import (
 	"github.com/frauniki/kubepark/test/utils"
 )
 
-var (
-	// managerImage is the manager image to be built and loaded for testing.
-	managerImage = "example.com/kubepark:v0.0.1"
-	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
-	shouldCleanupCertManager = false
+// image is the kubepark image built and loaded into Kind for the suite. It
+// can be overridden with E2E_IMG.
+var image = envOr("E2E_IMG", "example.com/kubepark:e2e")
+
+const (
+	namespace   = "kubepark-system"
+	releaseName = "kubepark"
 )
 
-// TestE2E runs the e2e test suite to validate the solution in an isolated environment.
-// The default setup requires Kind and CertManager.
-//
-// To enable kubectl kuberc (use custom kubectl configurations), set: KUBECTL_KUBERC=true
-// By default, kuberc is disabled to ensure consistent test behavior across different environments.
-// To skip CertManager installation, set: CERT_MANAGER_INSTALL_SKIP=true
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// TestE2E runs the kubepark e2e suite against a pre-existing Kind cluster.
+// It builds and loads the image, helm-installs the chart, and drives a
+// sandbox from creation to an SSH shell.
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting kubepark e2e test suite\n")
@@ -51,69 +55,40 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	By("building the manager image")
-	cmd := exec.Command("make", "docker-build", fmt.Sprintf("IMG=%s", managerImage))
-	_, err := utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build the manager image")
+	By("building the kubepark image")
+	_, err := utils.Run(command("make", "docker-build", "IMG="+image))
+	Expect(err).NotTo(HaveOccurred(), "failed to build the image")
 
-	// TODO(user): If you want to change the e2e test vendor from Kind,
-	// ensure the image is built and available, then remove the following block.
-	By("loading the manager image on Kind")
-	err = utils.LoadImageToKindClusterWithName(managerImage)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
+	By("loading the image into Kind")
+	Expect(loadImage(image)).To(Succeed(), "failed to load the image into Kind")
 
-	configureKubectlKubeRC()
-	setupCertManager()
+	By("installing the chart via Helm")
+	_, err = utils.Run(command("helm", "upgrade", "--install", releaseName,
+		"charts/kubepark",
+		"--namespace", namespace, "--create-namespace",
+		"--set", "image.repository="+imageRepo(image),
+		"--set", "image.tag="+imageTag(image),
+		"--set", "image.pullPolicy=IfNotPresent",
+		"--set-string", "crds.keep=false",
+		"--set", "gateway.service.type=ClusterIP",
+		"--wait", "--timeout", "180s",
+	))
+	Expect(err).NotTo(HaveOccurred(), "failed to helm install kubepark")
+
+	By("pointing the operator at the loaded agent image")
+	_, err = utils.Run(command("kubectl", "-n", namespace, "set", "env",
+		"deploy/"+releaseName, "POD_NAMESPACE="+namespace))
+	Expect(err).NotTo(HaveOccurred())
+	_, err = utils.Run(command("kubectl", "-n", namespace, "patch", "deploy", releaseName,
+		"--type=json", "-p",
+		`[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--agent-image=`+image+`"}]`))
+	Expect(err).NotTo(HaveOccurred())
+	_, err = utils.Run(command("kubectl", "-n", namespace, "rollout", "status",
+		"deploy/"+releaseName, "--timeout=120s"))
+	Expect(err).NotTo(HaveOccurred())
 })
 
 var _ = AfterSuite(func() {
-	teardownCertManager()
+	By("uninstalling the chart")
+	_, _ = utils.Run(command("helm", "uninstall", releaseName, "--namespace", namespace))
 })
-
-// Disable kubectl kuberc by default for test isolation.
-// This prevents local kubectl configurations from affecting test behavior.
-// To enable kuberc, set: KUBECTL_KUBERC=true
-func configureKubectlKubeRC() {
-	if os.Getenv("KUBECTL_KUBERC") != "true" {
-		By("disabling kubectl kuberc for test isolation")
-		err := os.Setenv("KUBECTL_KUBERC", "false")
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to disable kubectl kuberc")
-		_, _ = fmt.Fprintf(GinkgoWriter,
-			"kubectl kuberc disabled for consistent test behavior (override with KUBECTL_KUBERC=true)\n")
-	} else {
-		_, _ = fmt.Fprintf(GinkgoWriter, "kubectl kuberc enabled (KUBECTL_KUBERC=true)\n")
-	}
-}
-
-// setupCertManager installs CertManager if needed for webhook tests.
-// Skips installation if CERT_MANAGER_INSTALL_SKIP=true or if already present.
-func setupCertManager() {
-	if os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true" {
-		_, _ = fmt.Fprintf(GinkgoWriter, "Skipping CertManager installation (CERT_MANAGER_INSTALL_SKIP=true)\n")
-		return
-	}
-
-	By("checking if CertManager is already installed")
-	if utils.IsCertManagerCRDsInstalled() {
-		_, _ = fmt.Fprintf(GinkgoWriter, "CertManager is already installed. Skipping installation.\n")
-		return
-	}
-
-	// Mark for cleanup before installation to handle interruptions and partial installs.
-	shouldCleanupCertManager = true
-
-	By("installing CertManager")
-	Expect(utils.InstallCertManager()).To(Succeed(), "Failed to install CertManager")
-}
-
-// teardownCertManager uninstalls CertManager if it was installed by setupCertManager.
-// This ensures we only remove what we installed.
-func teardownCertManager() {
-	if !shouldCleanupCertManager {
-		_, _ = fmt.Fprintf(GinkgoWriter, "Skipping CertManager cleanup (not installed by this suite)\n")
-		return
-	}
-
-	By("uninstalling CertManager")
-	utils.UninstallCertManager()
-}
