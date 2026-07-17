@@ -116,10 +116,13 @@ var _ = Describe("kubepark end to end", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		By("running a command over SSH through the gateway")
+		// Verify identity with `id -u` rather than `whoami`: the sandbox runs
+		// as uid 1000 with no /etc/passwd entry, so `whoami` exits non-zero
+		// ("unknown uid 1000") even though the shell is fully functional.
 		sshCfg := filepath.Join(home, ".kubepark", "ssh_config")
 		Eventually(func() (string, error) {
 			return utils.Run(command("ssh", "-F", sshCfg, "-o", "BatchMode=yes",
-				"-o", "ConnectTimeout=30", "e2e-demo.default", "echo e2e-ok; whoami"))
+				"-o", "ConnectTimeout=30", "e2e-demo.default", "echo e2e-ok; id -u"))
 		}, time.Minute, 5*time.Second).Should(ContainSubstring("e2e-ok"))
 	})
 })
