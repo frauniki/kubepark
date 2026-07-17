@@ -305,6 +305,10 @@ func (r *SandboxReconciler) reconcileHostKey(ctx context.Context, sb *kubeparkv1
 	if err != nil {
 		return fmt.Errorf("parse host CA: %w", err)
 	}
+	// The user CA PUBLIC key travels with the host key so the agent can
+	// verify client certificates. The private user CA key never leaves the
+	// operator namespace (H3).
+	userCAPub := caSecret.Data[KeyUserCAPublic]
 
 	key, err := sshca.GenerateKeyPair("kubepark-host-" + sb.Name)
 	if err != nil {
@@ -329,6 +333,7 @@ func (r *SandboxReconciler) reconcileHostKey(ctx context.Context, sb *kubeparkv1
 			"ssh_host_ed25519_key":          key.PrivatePEM,
 			"ssh_host_ed25519_key.pub":      key.PublicAuthorized,
 			"ssh_host_ed25519_key-cert.pub": marshalCert(cert),
+			"user-ca.pub":                   userCAPub,
 		},
 	}
 	if err := controllerutil.SetControllerReference(sb, secret, r.Scheme); err != nil {

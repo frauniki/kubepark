@@ -17,30 +17,42 @@ limitations under the License.
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+
+	"github.com/frauniki/kubepark/internal/agent"
 )
 
 // newAgentCommand runs the in-sandbox SSH agent. The "install" subcommand is
 // used by the sandbox init container to copy this binary into a volume
 // shared with the user container (the image is distroless, so there is no
 // cp). The copy is named "agent" so that executing it directly re-enters
-// agent mode via the argv[0] dispatch in main.
+// agent mode via the argv[0] dispatch in main. Everything after "--" is the
+// template's long-running command.
 func newAgentCommand() *cobra.Command {
-	agent := &cobra.Command{
+	agentCmd := &cobra.Command{
 		Use:   agentBinaryName,
 		Short: "Run the in-sandbox SSH agent",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			// Implemented in milestone M3.
-			return errors.New("the agent is not implemented yet")
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := agent.ConfigFromEnv(argsAfterDashDash(cmd, args))
+			if err != nil {
+				return err
+			}
+			server, err := agent.NewServer(cfg)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "kubepark-agent listening on %s for owner %s\n", cfg.Addr, cfg.Owner)
+			return server.ListenAndServe()
 		},
 	}
-	agent.AddCommand(&cobra.Command{
+	// Pass the template command through verbatim after "--".
+	agentCmd.Flags().SetInterspersed(false)
+	agentCmd.AddCommand(&cobra.Command{
 		Use:   "install <dir>",
 		Short: "Copy this binary into <dir>/agent (init container helper)",
 		Args:  cobra.ExactArgs(1),
@@ -48,7 +60,16 @@ func newAgentCommand() *cobra.Command {
 			return installSelf(args[0])
 		},
 	})
-	return agent
+	return agentCmd
+}
+
+// argsAfterDashDash returns the positional args that followed "--" on the
+// command line (the template command), or all args if no "--" was present.
+func argsAfterDashDash(cmd *cobra.Command, args []string) []string {
+	if idx := cmd.ArgsLenAtDash(); idx >= 0 {
+		return args[idx:]
+	}
+	return args
 }
 
 // installSelf copies the currently running executable to <dir>/agent,

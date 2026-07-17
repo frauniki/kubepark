@@ -38,17 +38,8 @@ func main() {
 	}
 
 	root.AddCommand(
-		&cobra.Command{
-			Use:   "login",
-			Short: "Obtain a short-lived SSH certificate via OIDC",
-			RunE:  func(_ *cobra.Command, _ []string) error { return errNotImplemented }, // M4
-		},
-		&cobra.Command{
-			Use:   "ssh <sandbox>",
-			Short: "SSH into a sandbox through the gateway",
-			Args:  cobra.ExactArgs(1),
-			RunE:  func(_ *cobra.Command, _ []string) error { return errNotImplemented }, // M3
-		},
+		newLoginCommand(),
+		newSSHCommand(),
 		newAdminCommand(),
 	)
 
@@ -58,15 +49,10 @@ func main() {
 	}
 }
 
-func newAdminCommand() *cobra.Command {
-	admin := &cobra.Command{
-		Use:   "admin",
-		Short: "Administrative helpers (direct CA access)",
+func newLoginCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "login",
+		Short: "Obtain a short-lived SSH certificate via OIDC",
+		RunE:  func(_ *cobra.Command, _ []string) error { return errNotImplemented }, // M4
 	}
-	admin.AddCommand(&cobra.Command{
-		Use:   "sign-cert",
-		Short: "Sign an SSH public key with the user CA Secret",
-		RunE:  func(_ *cobra.Command, _ []string) error { return errNotImplemented }, // M3
-	})
-	return admin
 }

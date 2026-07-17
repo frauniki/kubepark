@@ -59,8 +59,13 @@ const (
 
 	annotationSafeToEvict = "cluster-autoscaler.kubernetes.io/safe-to-evict"
 
-	volumeHome  = "home"
-	volumeAgent = "kubepark-bin"
+	volumeHome    = "home"
+	volumeAgent   = "kubepark-bin"
+	volumeHostKey = "kubepark-host"
+
+	// HostKeyMountPath is where the agent reads its host key, host cert and
+	// the user CA public key. Only public CA material is ever mounted here.
+	HostKeyMountPath = "/etc/kubepark/host"
 )
 
 // Options are operator-level knobs that shape sandbox pods.
@@ -199,6 +204,7 @@ func BuildPod(sb *kubeparkv1alpha1.Sandbox, tpl *kubeparkv1alpha1.SandboxTemplat
 				VolumeMounts: []corev1.VolumeMount{
 					{Name: volumeHome, MountPath: HomeMountPath},
 					{Name: volumeAgent, MountPath: agentDir, ReadOnly: true},
+					{Name: volumeHostKey, MountPath: HostKeyMountPath, ReadOnly: true},
 				},
 			}},
 			Volumes: []corev1.Volume{
@@ -214,6 +220,17 @@ func BuildPod(sb *kubeparkv1alpha1.Sandbox, tpl *kubeparkv1alpha1.SandboxTemplat
 					Name: volumeAgent,
 					VolumeSource: corev1.VolumeSource{
 						EmptyDir: &corev1.EmptyDirVolumeSource{},
+					},
+				},
+				{
+					// Public host key/cert plus the user CA public key. No
+					// private CA material is ever mounted into the sandbox.
+					Name: volumeHostKey,
+					VolumeSource: corev1.VolumeSource{
+						Secret: &corev1.SecretVolumeSource{
+							SecretName:  HostKeyName(sb.Name),
+							DefaultMode: ptr.To(int32(0o400)),
+						},
 					},
 				},
 			},

@@ -74,14 +74,25 @@ func TestBuildPod_SecurityBaseline(t *testing.T) {
 	}
 }
 
-// The user CA private key must never reach a sandbox pod: only the agent
-// binary (via emptyDir) and the home volume are mounted.
-func TestBuildPod_NoSecretVolumes(t *testing.T) {
+// The user CA private key lives only in the operator CA Secret and must
+// never reach a sandbox pod. The per-sandbox host-key Secret (public host
+// cert + user CA public key + the pod's own host key) is expected.
+func TestBuildPod_NoOperatorCASecret(t *testing.T) {
 	pod := BuildPod(testSandbox(), testTemplate(), Options{AgentImage: testImage})
+	sawHostKey := false
 	for _, v := range pod.Spec.Volumes {
-		if v.Secret != nil {
-			t.Errorf("sandbox pod must not mount any Secret volume, found %q", v.Name)
+		if v.Secret == nil {
+			continue
 		}
+		if v.Secret.SecretName == "kubepark-ca" {
+			t.Error("sandbox pod must never mount the operator CA secret (holds the user CA private key)")
+		}
+		if v.Secret.SecretName == HostKeyName(testSandbox().Name) {
+			sawHostKey = true
+		}
+	}
+	if !sawHostKey {
+		t.Error("expected the per-sandbox host-key secret to be mounted")
 	}
 }
 

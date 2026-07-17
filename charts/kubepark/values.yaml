@@ -21,6 +21,25 @@ serviceAccount:
   # Defaults to the fullname.
   name: ""
 
+# The SSH/HTTP gateway. It runs as a second Deployment under the same
+# ServiceAccount as the operator (which already carries the required RBAC).
+gateway:
+  replicas: 1
+  # In-pod SSH listen port.
+  sshPort: 2222
+  service:
+    # Use LoadBalancer to expose the jump host outside the cluster; NodePort
+    # or ClusterIP (with your own ingress/L4) also work.
+    type: LoadBalancer
+    port: 2222
+    annotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
 leaderElection: true
 
 metrics:
