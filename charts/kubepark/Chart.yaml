@@ -5,8 +5,8 @@ description: >-
   Kubernetes via Sandbox / SandboxTemplate / AccessProfile CRDs, reached
   through a certificate-authenticated SSH/HTTP gateway.
 type: application
-version: 0.1.0 # x-release-please-version
-appVersion: "0.1.0" # x-release-please-version
+version: 1.0.0 # x-release-please-version
+appVersion: "1.0.0" # x-release-please-version
 home: https://github.com/frauniki/kubepark
 sources:
   - https://github.com/frauniki/kubepark
