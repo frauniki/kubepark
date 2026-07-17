@@ -68,6 +68,8 @@ type SandboxReconciler struct {
 	// GatewayNamespace is where gateway pods run; defaults to the operator
 	// namespace.
 	GatewayNamespace string
+	// Now is overridable in tests; defaults to time.Now.
+	Now func() time.Time
 }
 
 // +kubebuilder:rbac:groups=kubepark.dev,resources=sandboxes,verbs=get;list;watch;create;update;patch;delete
@@ -170,7 +172,78 @@ func (r *SandboxReconciler) reconcileSandbox(ctx context.Context, sb *kubeparkv1
 	if sb.Spec.DesiredState == kubeparkv1alpha1.DesiredStateStopped {
 		return r.suspend(ctx, sb, status)
 	}
-	return r.run(ctx, sb, &tpl, currentHash, rbac.ServiceAccount, status)
+
+	// Idle suspension. The suspend decision is always computed from the
+	// live SandboxSession list, never the (display-only) status counter.
+	active, err := r.activeSessionCount(ctx, sb)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	status.ActiveSessions = int32(active)
+
+	timeout := effectiveIdleTimeout(sb, &tpl)
+	if active == 0 && idleExpired(status.LastActivityTime, timeout) {
+		return r.suspend(ctx, sb, status)
+	}
+
+	result, err := r.run(ctx, sb, &tpl, currentHash, rbac.ServiceAccount, status)
+	if err != nil {
+		return result, err
+	}
+	// While running and idle-eligible, requeue at the idle deadline so the
+	// sandbox suspends even without another event.
+	if result.RequeueAfter == 0 && active == 0 && timeout > 0 &&
+		status.Phase == kubeparkv1alpha1.SandboxPhaseRunning && status.LastActivityTime != nil {
+		remaining := max(timeout-r.now().Sub(status.LastActivityTime.Time), time.Second)
+		result.RequeueAfter = remaining
+	}
+	return result, nil
+}
+
+// activeSessionCount counts live Active sessions for the sandbox from the
+// API server (never from status).
+func (r *SandboxReconciler) activeSessionCount(ctx context.Context, sb *kubeparkv1alpha1.Sandbox) (int, error) {
+	var sessions kubeparkv1alpha1.SandboxSessionList
+	if err := r.List(ctx, &sessions, client.InNamespace(sb.Namespace)); err != nil {
+		return 0, err
+	}
+	count := 0
+	for i := range sessions.Items {
+		s := &sessions.Items[i]
+		if s.Spec.SandboxName == sb.Name && s.Status.State == kubeparkv1alpha1.SessionStateActive {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// effectiveIdleTimeout resolves the sandbox override, then the template
+// default; zero (or unset) disables idle suspension.
+func effectiveIdleTimeout(sb *kubeparkv1alpha1.Sandbox, tpl *kubeparkv1alpha1.SandboxTemplate) time.Duration {
+	if sb.Spec.IdleTimeout != nil {
+		return sb.Spec.IdleTimeout.Duration
+	}
+	if tpl.Spec.DefaultIdleTimeout != nil {
+		return tpl.Spec.DefaultIdleTimeout.Duration
+	}
+	return 0
+}
+
+// idleExpired reports whether the idle window has elapsed. A nil
+// lastActivity (should not happen once Running) is treated as not-expired.
+func idleExpired(lastActivity *metav1.Time, timeout time.Duration) bool {
+	if timeout <= 0 || lastActivity == nil {
+		return false
+	}
+	return time.Since(lastActivity.Time) > timeout
+}
+
+// now is overridable in tests.
+func (r *SandboxReconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
 }
 
 // reconcileHome ensures the home PVC. A non-nil result means "stop this
@@ -707,6 +780,8 @@ func (r *SandboxReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.sandboxesForTemplate)).
 		Watches(&kubeparkv1alpha1.AccessProfile{},
 			handler.EnqueueRequestsFromMapFunc(r.sandboxesForAccessProfile)).
+		Watches(&kubeparkv1alpha1.SandboxSession{},
+			handler.EnqueueRequestsFromMapFunc(r.sandboxForSession)).
 		Watches(&discoveryv1.EndpointSlice{},
 			handler.EnqueueRequestsFromMapFunc(r.sandboxesForAPIServerEndpoints)).
 		Named("sandbox").
@@ -733,6 +808,19 @@ func (r *SandboxReconciler) sandboxesForAccessProfile(ctx context.Context, obj c
 		return nil
 	}
 	return toRequests(sandboxes.Items)
+}
+
+// sandboxForSession wakes/idles the owning sandbox when one of its sessions
+// changes (a new Active session resumes a suspended sandbox; a close starts
+// the idle clock).
+func (r *SandboxReconciler) sandboxForSession(_ context.Context, obj client.Object) []ctrl.Request {
+	session, ok := obj.(*kubeparkv1alpha1.SandboxSession)
+	if !ok || session.Spec.SandboxName == "" {
+		return nil
+	}
+	return []ctrl.Request{{NamespacedName: types.NamespacedName{
+		Namespace: session.Namespace, Name: session.Spec.SandboxName,
+	}}}
 }
 
 // sandboxesForAPIServerEndpoints re-renders every network policy when the

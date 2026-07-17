@@ -3,6 +3,7 @@ module github.com/frauniki/kubepark
 go 1.26.0
 
 require (
+	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/creack/pty v1.1.9
 	github.com/gliderlabs/ssh v0.3.8
 	github.com/onsi/ginkgo/v2 v2.27.2
@@ -10,6 +11,7 @@ require (
 	github.com/pkg/sftp v1.13.11
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.54.0
+	golang.org/x/oauth2 v0.36.0
 	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
@@ -32,6 +34,7 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
@@ -78,7 +81,6 @@ require (
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect

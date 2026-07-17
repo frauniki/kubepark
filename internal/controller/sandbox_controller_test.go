@@ -35,6 +35,8 @@ import (
 	"github.com/frauniki/kubepark/internal/controller/podspec"
 )
 
+const testOwner = "alice@example.com"
+
 var sandboxCounter int
 
 // createTemplate creates a minimal SandboxTemplate.
@@ -59,7 +61,7 @@ func newSandbox(template string) *kubeparkv1alpha1.Sandbox {
 		},
 		Spec: kubeparkv1alpha1.SandboxSpec{
 			Template: template,
-			Owner:    kubeparkv1alpha1.OwnerSpec{Name: "alice@example.com"},
+			Owner:    kubeparkv1alpha1.OwnerSpec{Name: testOwner},
 		},
 	}
 }
@@ -185,6 +187,89 @@ var _ = Describe("Sandbox Controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Namespace: sb.Namespace, Name: podspec.PVCName(sb.Name)}, &pvc)).To(Succeed())
 			Expect(pvc.Labels).To(HaveKeyWithValue(LabelOrphanedHome, "true"))
+		})
+	})
+
+	Context("idle suspension and session resume", func() {
+		It("suspends when idle, then resumes on a new Active session", func() {
+			createTemplate("tpl-idle")
+			sb := newSandbox("tpl-idle")
+			sb.Spec.IdleTimeout = &metav1.Duration{Duration: 2 * time.Second}
+			Expect(k8sClient.Create(ctx, sb)).To(Succeed())
+			markPodReady(podspec.PodName(sb.Name))
+			Eventually(func() kubeparkv1alpha1.SandboxPhase {
+				return phaseOf(sb.Name)
+			}, 15*time.Second, 300*time.Millisecond).Should(Equal(kubeparkv1alpha1.SandboxPhaseRunning))
+
+			By("suspending after the idle timeout with no sessions")
+			Eventually(func() bool {
+				var pod corev1.Pod
+				err := k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: sb.Namespace, Name: podspec.PodName(sb.Name)}, &pod)
+				return apierrors.IsNotFound(err) || !pod.DeletionTimestamp.IsZero()
+			}, 20*time.Second, 500*time.Millisecond).Should(BeTrue())
+			Eventually(func() kubeparkv1alpha1.SandboxPhase {
+				return phaseOf(sb.Name)
+			}, 10*time.Second, 300*time.Millisecond).Should(Equal(kubeparkv1alpha1.SandboxPhaseSuspended))
+
+			By("keeping the PVC across suspension")
+			var pvc corev1.PersistentVolumeClaim
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Namespace: sb.Namespace, Name: podspec.PVCName(sb.Name)}, &pvc)).To(Succeed())
+
+			By("resuming when the gateway opens an Active session")
+			session := &kubeparkv1alpha1.SandboxSession{
+				ObjectMeta: metav1.ObjectMeta{Namespace: sb.Namespace, Name: sb.Name + "-sess1"},
+				Spec: kubeparkv1alpha1.SandboxSessionSpec{
+					SandboxName: sb.Name, User: testOwner, Kind: kubeparkv1alpha1.SessionKindSSH,
+				},
+			}
+			Expect(k8sClient.Create(ctx, session)).To(Succeed())
+			session.Status.State = kubeparkv1alpha1.SessionStateActive
+			start := metav1.Now()
+			session.Status.StartTime = &start
+			session.Status.LastActivityTime = &start
+			Expect(k8sClient.Status().Update(ctx, session)).To(Succeed())
+
+			Eventually(func() error {
+				var pod corev1.Pod
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: sb.Namespace, Name: podspec.PodName(sb.Name)}, &pod)
+			}, 15*time.Second, 300*time.Millisecond).Should(Succeed())
+		})
+	})
+
+	Context("stale session reaper", func() {
+		It("closes an Active session whose heartbeats have gone stale", func() {
+			createTemplate("tpl-reap")
+			sb := newSandbox("tpl-reap")
+			Expect(k8sClient.Create(ctx, sb)).To(Succeed())
+
+			session := &kubeparkv1alpha1.SandboxSession{
+				ObjectMeta: metav1.ObjectMeta{Namespace: sb.Namespace, Name: sb.Name + "-stale"},
+				Spec: kubeparkv1alpha1.SandboxSessionSpec{
+					SandboxName:       sb.Name,
+					User:              testOwner,
+					Kind:              kubeparkv1alpha1.SessionKindSSH,
+					HeartbeatInterval: &metav1.Duration{Duration: time.Second},
+				},
+			}
+			Expect(k8sClient.Create(ctx, session)).To(Succeed())
+			// Last activity well in the past: older than 3x the interval.
+			stale := metav1.NewTime(time.Now().Add(-10 * time.Second))
+			session.Status.State = kubeparkv1alpha1.SessionStateActive
+			session.Status.StartTime = &stale
+			session.Status.LastActivityTime = &stale
+			Expect(k8sClient.Status().Update(ctx, session)).To(Succeed())
+
+			Eventually(func() string {
+				var s kubeparkv1alpha1.SandboxSession
+				if err := k8sClient.Get(ctx, types.NamespacedName{
+					Namespace: sb.Namespace, Name: session.Name}, &s); err != nil {
+					return ""
+				}
+				return string(s.Status.State) + "/" + s.Status.ExitReason
+			}, 15*time.Second, 300*time.Millisecond).Should(Equal("Closed/StaleHeartbeat"))
 		})
 	})
 

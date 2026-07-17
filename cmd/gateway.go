@@ -19,7 +19,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -43,22 +45,38 @@ import (
 // newGatewayCommand runs the kubepark gateway: an SSH jump host that
 // authenticates clients with CA-signed certificates and routes direct-tcpip
 // channels to sandbox pods. (The HTTP reverse proxy lands in M5.)
+type gatewayOptions struct {
+	sshAddr          string
+	httpAddr         string
+	defaultNamespace string
+	oidcIssuer       string
+	oidcClientID     string
+	principalClaim   string
+	baseDomain       string
+	certTTL          time.Duration
+}
+
 func newGatewayCommand() *cobra.Command {
-	var addr string
-	var defaultNamespace string
+	var opts gatewayOptions
 	cmd := &cobra.Command{
 		Use:   "gateway",
 		Short: "Run the kubepark SSH/HTTP gateway",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runGateway(cmd.Context(), addr, defaultNamespace)
+			return runGateway(cmd.Context(), opts)
 		},
 	}
-	cmd.Flags().StringVar(&addr, "ssh-address", ":2222", "SSH jump host listen address.")
-	cmd.Flags().StringVar(&defaultNamespace, "default-namespace", "", "Namespace assumed when a target omits one.")
+	cmd.Flags().StringVar(&opts.sshAddr, "ssh-address", ":2222", "SSH jump host listen address.")
+	cmd.Flags().StringVar(&opts.httpAddr, "http-address", ":8080", "HTTP address for the sign endpoints.")
+	cmd.Flags().StringVar(&opts.defaultNamespace, "default-namespace", "", "Namespace assumed when a target omits one.")
+	cmd.Flags().StringVar(&opts.oidcIssuer, "oidc-issuer", "", "OIDC issuer URL (enables kubepark login).")
+	cmd.Flags().StringVar(&opts.oidcClientID, "oidc-client-id", "", "OIDC client ID.")
+	cmd.Flags().StringVar(&opts.principalClaim, "principal-claim", "email", "ID-token claim mapped to the cert principal.")
+	cmd.Flags().StringVar(&opts.baseDomain, "base-domain", "", "Base domain advertised for HTTP routing.")
+	cmd.Flags().DurationVar(&opts.certTTL, "cert-ttl", 8*time.Hour, "Issued certificate validity.")
 	return cmd
 }
 
-func runGateway(ctx context.Context, addr, defaultNamespace string) error {
+func runGateway(ctx context.Context, opts gatewayOptions) error {
 	if ctx == nil {
 		ctx = ctrl.SetupSignalHandler()
 	}
@@ -90,10 +108,10 @@ func runGateway(ctx context.Context, addr, defaultNamespace string) error {
 	}
 
 	server, err := gateway.NewSSHServer(gateway.SSHConfig{
-		Addr:             addr,
+		Addr:             opts.sshAddr,
 		HostKeyPEM:       hostKey,
 		UserCAAuthorized: caSecret.Data[controller.KeyUserCAPublic],
-		DefaultNamespace: defaultNamespace,
+		DefaultNamespace: opts.defaultNamespace,
 		Store:            gateway.NewStore(mgr.GetClient()),
 		Dialer:           gateway.NewDirectDialer(),
 	})
@@ -105,7 +123,31 @@ func runGateway(ctx context.Context, addr, defaultNamespace string) error {
 	if err := mgr.Add(&sshRunnable{server: server}); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "kubepark gateway SSH jump host listening on %s\n", addr)
+
+	// The sign endpoint (OIDC -> short-lived cert). Only enabled when an
+	// issuer is configured.
+	if opts.oidcIssuer != "" {
+		signer, signErr := gateway.NewSigner(caSecret.Data["user-ca.key"], opts.certTTL)
+		if signErr != nil {
+			return signErr
+		}
+		signServer, signErr := gateway.NewSignServer(ctx, signer, gateway.OIDCConfig{
+			Issuer:         opts.oidcIssuer,
+			ClientID:       opts.oidcClientID,
+			PrincipalClaim: opts.principalClaim,
+			BaseDomain:     opts.baseDomain,
+			GatewaySSHAddr: opts.sshAddr,
+		})
+		if signErr != nil {
+			return signErr
+		}
+		if signErr := mgr.Add(&httpRunnable{addr: opts.httpAddr, handler: signServer.Handler()}); signErr != nil {
+			return signErr
+		}
+		fmt.Fprintf(os.Stderr, "kubepark gateway sign endpoint listening on %s\n", opts.httpAddr)
+	}
+
+	fmt.Fprintf(os.Stderr, "kubepark gateway SSH jump host listening on %s\n", opts.sshAddr)
 	return mgr.Start(ctx)
 }
 
@@ -160,6 +202,25 @@ func (s *sshRunnable) Start(ctx context.Context) error {
 		_ = s.server.Close()
 	}()
 	if err := s.server.ListenAndServe(); err != nil && err.Error() != "ssh: Server closed" {
+		return err
+	}
+	return nil
+}
+
+// httpRunnable adapts an HTTP server (the sign endpoint) to the manager
+// lifecycle.
+type httpRunnable struct {
+	addr    string
+	handler http.Handler
+}
+
+func (h *httpRunnable) Start(ctx context.Context) error {
+	srv := &http.Server{Addr: h.addr, Handler: h.handler, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-ctx.Done()
+		_ = srv.Close()
+	}()
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 	return nil

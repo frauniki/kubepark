@@ -39,8 +39,12 @@ type Store interface {
 	// SetDesiredRunning flips a suspended sandbox back to Running so the
 	// operator resumes it (wake-on-connect).
 	SetDesiredRunning(ctx context.Context, sb *kubeparkv1alpha1.Sandbox) error
-	// CreateSession records an audit session and returns its name.
+	// CreateSession records an audit session (marking it Active) and returns
+	// its name.
 	CreateSession(ctx context.Context, session *kubeparkv1alpha1.SandboxSession) error
+	// Heartbeat refreshes a session's last-activity time so the stale
+	// reaper does not close it while the connection lives.
+	Heartbeat(ctx context.Context, namespace, name string) error
 	// CloseSession marks a session Closed with the given reason.
 	CloseSession(ctx context.Context, namespace, name, reason string) error
 }
@@ -74,7 +78,27 @@ func (s *clientStore) SetDesiredRunning(ctx context.Context, sb *kubeparkv1alpha
 }
 
 func (s *clientStore) CreateSession(ctx context.Context, session *kubeparkv1alpha1.SandboxSession) error {
-	return s.c.Create(ctx, session)
+	if err := s.c.Create(ctx, session); err != nil {
+		return err
+	}
+	now := metav1.Now()
+	session.Status.State = kubeparkv1alpha1.SessionStateActive
+	session.Status.StartTime = &now
+	session.Status.LastActivityTime = &now
+	return s.c.Status().Update(ctx, session)
+}
+
+func (s *clientStore) Heartbeat(ctx context.Context, namespace, name string) error {
+	var session kubeparkv1alpha1.SandboxSession
+	if err := s.c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &session); err != nil {
+		return err
+	}
+	if session.Status.State != kubeparkv1alpha1.SessionStateActive {
+		return nil
+	}
+	now := metav1.Now()
+	session.Status.LastActivityTime = &now
+	return s.c.Status().Update(ctx, &session)
 }
 
 func (s *clientStore) CloseSession(ctx context.Context, namespace, name, reason string) error {

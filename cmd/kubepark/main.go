@@ -20,14 +20,11 @@ limitations under the License.
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 )
-
-var errNotImplemented = errors.New("not implemented yet")
 
 func main() {
 	root := &cobra.Command{
@@ -46,13 +43,5 @@ func main() {
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
-	}
-}
-
-func newLoginCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "login",
-		Short: "Obtain a short-lived SSH certificate via OIDC",
-		RunE:  func(_ *cobra.Command, _ []string) error { return errNotImplemented }, // M4
 	}
 }

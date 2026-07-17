@@ -223,18 +223,22 @@ func (h *jumpHandler) wakeAndWait(ctx context.Context, sb *kubeparkv1alpha1.Sand
 	}
 }
 
-// openSession creates the SandboxSession audit record and returns a closer.
+// openSession creates the SandboxSession audit record, starts a heartbeat
+// that keeps it Active while the connection lives, and returns a closer.
 func (h *jumpHandler) openSession(ctx context.Context, sb *kubeparkv1alpha1.Sandbox, principal, clientAddr, certSerial string) (string, func(reason string)) {
 	logger := log.FromContext(ctx)
 	name := fmt.Sprintf("%s-%s", sb.Name, randomSuffix(ctx))
+	interval := heartbeatInterval(effectiveIdleTimeout(sb))
+	hb := metav1.Duration{Duration: interval}
 	session := &kubeparkv1alpha1.SandboxSession{
 		ObjectMeta: metav1.ObjectMeta{Namespace: sb.Namespace, Name: name},
 		Spec: kubeparkv1alpha1.SandboxSessionSpec{
-			SandboxName: sb.Name,
-			User:        principal,
-			ClientAddr:  clientAddr,
-			Kind:        kubeparkv1alpha1.SessionKindSSH,
-			CertSerial:  certSerial,
+			SandboxName:       sb.Name,
+			User:              principal,
+			ClientAddr:        clientAddr,
+			Kind:              kubeparkv1alpha1.SessionKindSSH,
+			CertSerial:        certSerial,
+			HeartbeatInterval: &hb,
 		},
 	}
 	if err := h.cfg.Store.CreateSession(ctx, session); err != nil {
@@ -242,18 +246,58 @@ func (h *jumpHandler) openSession(ctx context.Context, sb *kubeparkv1alpha1.Sand
 		return "", func(string) {}
 	}
 	logger.Info("session opened", "sandbox", sb.Name, "user", principal, "client", clientAddr)
+
+	// Heartbeat until the closer stops it.
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if err := h.cfg.Store.Heartbeat(context.WithoutCancel(ctx), sb.Namespace, name); err != nil {
+					logger.V(1).Info("heartbeat failed", "session", name, "err", err.Error())
+				}
+			}
+		}
+	}()
+
 	closed := false
 	return name, func(reason string) {
 		if closed {
 			return
 		}
 		closed = true
+		close(stop)
 		// Use a detached context: the connection context is already done.
 		if err := h.cfg.Store.CloseSession(context.WithoutCancel(ctx), sb.Namespace, name, reason); err != nil {
 			logger.Error(err, "failed to close session")
 		}
 		logger.Info("session closed", "sandbox", sb.Name, "user", principal, "reason", reason)
 	}
+}
+
+// effectiveIdleTimeout resolves the sandbox's idle timeout (override only;
+// the gateway does not see the template, so template defaults are treated
+// as "use the heartbeat floor").
+func effectiveIdleTimeout(sb *kubeparkv1alpha1.Sandbox) time.Duration {
+	if sb.Spec.IdleTimeout != nil {
+		return sb.Spec.IdleTimeout.Duration
+	}
+	return 0
+}
+
+// heartbeatInterval is max(60s, idleTimeout/4): frequent enough for the
+// reaper, infrequent enough to avoid etcd write amplification.
+func heartbeatInterval(idleTimeout time.Duration) time.Duration {
+	const floor = 60 * time.Second
+	quarter := idleTimeout / 4
+	if quarter > floor {
+		return quarter
+	}
+	return floor
 }
 
 // randomSuffix returns a short random hex string for session names.

@@ -116,6 +116,8 @@ func (s *fakeStore) CreateSession(_ context.Context, _ *kubeparkv1alpha1.Sandbox
 	return nil
 }
 
+func (s *fakeStore) Heartbeat(_ context.Context, _, _ string) error { return nil }
+
 func (s *fakeStore) CloseSession(_ context.Context, _, _, _ string) error {
 	s.mu.Lock()
 	s.closed++

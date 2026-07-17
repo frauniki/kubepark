@@ -37,6 +37,15 @@ spec:
           args:
             - gateway
             - --ssh-address=:{{ .Values.gateway.sshPort }}
+            - --http-address=:{{ .Values.gateway.httpPort }}
+            {{- if .Values.oidc.issuer }}
+            - --oidc-issuer={{ .Values.oidc.issuer }}
+            - --oidc-client-id={{ .Values.oidc.clientID }}
+            - --principal-claim={{ .Values.oidc.principalClaim }}
+            {{- end }}
+            {{- if .Values.gateway.baseDomain }}
+            - --base-domain={{ .Values.gateway.baseDomain }}
+            {{- end }}
           env:
             - name: POD_NAMESPACE
               valueFrom:
@@ -45,6 +54,9 @@ spec:
           ports:
             - containerPort: {{ .Values.gateway.sshPort }}
               name: ssh
+              protocol: TCP
+            - containerPort: {{ .Values.gateway.httpPort }}
+              name: http
               protocol: TCP
           securityContext:
             allowPrivilegeEscalation: false
@@ -85,4 +97,8 @@ spec:
     - name: ssh
       port: {{ .Values.gateway.service.port }}
       targetPort: ssh
+      protocol: TCP
+    - name: http
+      port: {{ .Values.gateway.service.httpPort }}
+      targetPort: http
       protocol: TCP
