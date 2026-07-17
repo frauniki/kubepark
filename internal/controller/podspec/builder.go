@@ -70,6 +70,9 @@ type Options struct {
 	AgentImage string
 	// PriorityClassName is set on sandbox pods when non-empty.
 	PriorityClassName string
+	// ServiceAccountName carries AccessProfile grants. When empty the pod
+	// runs without a mounted token.
+	ServiceAccountName string
 }
 
 // Names derived from the sandbox name. Kept together so the controller and
@@ -160,8 +163,12 @@ func BuildPod(sb *kubeparkv1alpha1.Sandbox, tpl *kubeparkv1alpha1.SandboxTemplat
 			RestartPolicy: corev1.RestartPolicyAlways,
 			// Stable hostname: the shell prompt names the sandbox, not a
 			// generated pod name.
-			Hostname:                      sb.Name,
-			AutomountServiceAccountToken:  ptr.To(false),
+			Hostname: sb.Name,
+			// The bound projected token is mounted only when the sandbox
+			// has an AccessProfile SA, so kubectl works with zero glue and
+			// profile-less sandboxes carry no credentials.
+			ServiceAccountName:            opts.ServiceAccountName,
+			AutomountServiceAccountToken:  ptr.To(opts.ServiceAccountName != ""),
 			TerminationGracePeriodSeconds: ptr.To(int64(30)),
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsNonRoot: ptr.To(true),

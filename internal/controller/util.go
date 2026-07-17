@@ -19,7 +19,18 @@ package controller
 import (
 	"golang.org/x/crypto/ssh"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	kubeparkv1alpha1 "github.com/frauniki/kubepark/api/v1alpha1"
 )
+
+// controllerSetOwner sets the sandbox as the controller owner of a
+// namespace-local object.
+func controllerSetOwner(sb *kubeparkv1alpha1.Sandbox, obj client.Object, scheme *runtime.Scheme) error {
+	return controllerutil.SetControllerReference(sb, obj, scheme)
+}
 
 // equality is semantic deep-equality (resource quantities compare by value,
 // nil and empty collections compare equal).

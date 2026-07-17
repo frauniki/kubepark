@@ -79,9 +79,12 @@ type SandboxReconciler struct {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kubepark.dev,resources=accessprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete;bind
 
 // Reconcile drives the sandbox state machine. The pod is a disposable
 // executor: PVC, host key and (in later milestones) RBAC survive it.
@@ -149,12 +152,25 @@ func (r *SandboxReconciler) reconcileSandbox(ctx context.Context, sb *kubeparkv1
 		return ctrl.Result{}, err
 	}
 
+	// Access profile -> ServiceAccount + RBAC. A not-permitted or missing
+	// profile blocks the pod so it never runs with stale credentials.
+	rbac, err := r.reconcileRBAC(ctx, sb, status)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !rbac.Ready {
+		status.Phase = kubeparkv1alpha1.SandboxPhasePending
+		r.setCondition(sb, status, kubeparkv1alpha1.ConditionReady, metav1.ConditionFalse,
+			kubeparkv1alpha1.ReasonProvisioning, "waiting on access profile")
+		return ctrl.Result{}, nil
+	}
+
 	// Desired-state machine.
 	currentHash := podspec.TemplateHash(&tpl.Spec)
 	if sb.Spec.DesiredState == kubeparkv1alpha1.DesiredStateStopped {
 		return r.suspend(ctx, sb, status)
 	}
-	return r.run(ctx, sb, &tpl, currentHash, status)
+	return r.run(ctx, sb, &tpl, currentHash, rbac.ServiceAccount, status)
 }
 
 // reconcileHome ensures the home PVC. A non-nil result means "stop this
@@ -412,7 +428,7 @@ func (r *SandboxReconciler) suspend(ctx context.Context, sb *kubeparkv1alpha1.Sa
 }
 
 // run ensures the executor pod exists and reflects pod state into status.
-func (r *SandboxReconciler) run(ctx context.Context, sb *kubeparkv1alpha1.Sandbox, tpl *kubeparkv1alpha1.SandboxTemplate, currentHash string, status *kubeparkv1alpha1.SandboxStatus) (ctrl.Result, error) {
+func (r *SandboxReconciler) run(ctx context.Context, sb *kubeparkv1alpha1.Sandbox, tpl *kubeparkv1alpha1.SandboxTemplate, currentHash, serviceAccount string, status *kubeparkv1alpha1.SandboxStatus) (ctrl.Result, error) {
 	var pod corev1.Pod
 	err := r.Get(ctx, types.NamespacedName{Namespace: sb.Namespace, Name: podspec.PodName(sb.Name)}, &pod)
 	if apierrors.IsNotFound(err) {
@@ -421,8 +437,9 @@ func (r *SandboxReconciler) run(ctx context.Context, sb *kubeparkv1alpha1.Sandbo
 			status.Phase == kubeparkv1alpha1.SandboxPhaseResuming
 
 		desired := podspec.BuildPod(sb, tpl, podspec.Options{
-			AgentImage:        r.AgentImage,
-			PriorityClassName: r.PriorityClassName,
+			AgentImage:         r.AgentImage,
+			PriorityClassName:  r.PriorityClassName,
+			ServiceAccountName: serviceAccount,
 		})
 		if err := controllerutil.SetControllerReference(sb, desired, r.Scheme); err != nil {
 			return ctrl.Result{}, err
@@ -525,10 +542,16 @@ func (r *SandboxReconciler) finalize(ctx context.Context, sb *kubeparkv1alpha1.S
 		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: sb.Namespace, Name: podspec.PodName(sb.Name)}},
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: sb.Namespace, Name: podspec.HostKeyName(sb.Name)}},
 		&networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: sb.Namespace, Name: podspec.NetPolName(sb.Name)}},
+		&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: sb.Namespace, Name: saName(sb.Name)}},
 	} {
 		if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
+	}
+
+	// RoleBindings live in arbitrary grant namespaces; GC them by label.
+	if err := r.gcRBAC(ctx, sb, nil); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if err := r.closeSessions(ctx, sb); err != nil {
@@ -658,14 +681,27 @@ func (r *SandboxReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}); err != nil {
 		return err
 	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kubeparkv1alpha1.Sandbox{},
+		indexSandboxAccessProfile, func(obj client.Object) []string {
+			sb := obj.(*kubeparkv1alpha1.Sandbox)
+			if sb.Spec.AccessProfile == "" {
+				return nil
+			}
+			return []string{sb.Spec.AccessProfile}
+		}); err != nil {
+		return err
+	}
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kubeparkv1alpha1.Sandbox{}).
 		Owns(&corev1.Pod{}).
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&corev1.Secret{}).
+		Owns(&corev1.ServiceAccount{}).
 		Watches(&kubeparkv1alpha1.SandboxTemplate{},
 			handler.EnqueueRequestsFromMapFunc(r.sandboxesForTemplate)).
+		Watches(&kubeparkv1alpha1.AccessProfile{},
+			handler.EnqueueRequestsFromMapFunc(r.sandboxesForAccessProfile)).
 		Watches(&discoveryv1.EndpointSlice{},
 			handler.EnqueueRequestsFromMapFunc(r.sandboxesForAPIServerEndpoints)).
 		Named("sandbox").
@@ -678,6 +714,17 @@ func (r *SandboxReconciler) sandboxesForTemplate(ctx context.Context, obj client
 	var sandboxes kubeparkv1alpha1.SandboxList
 	if err := r.List(ctx, &sandboxes,
 		client.MatchingFields{indexSandboxTemplate: obj.GetName()}); err != nil {
+		return nil
+	}
+	return toRequests(sandboxes.Items)
+}
+
+// sandboxesForAccessProfile re-queues every sandbox referencing a changed
+// or deleted profile so its RBAC and RBACReady condition are re-evaluated.
+func (r *SandboxReconciler) sandboxesForAccessProfile(ctx context.Context, obj client.Object) []ctrl.Request {
+	var sandboxes kubeparkv1alpha1.SandboxList
+	if err := r.List(ctx, &sandboxes,
+		client.MatchingFields{indexSandboxAccessProfile: obj.GetName()}); err != nil {
 		return nil
 	}
 	return toRequests(sandboxes.Items)

@@ -67,7 +67,7 @@ func TestBuildPod_SecurityBaseline(t *testing.T) {
 		t.Error("expected seccomp RuntimeDefault")
 	}
 	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
-		t.Error("expected automountServiceAccountToken=false in M1 (RBAC lands in M2)")
+		t.Error("expected automountServiceAccountToken=false when the sandbox has no AccessProfile SA")
 	}
 	if got := pod.Annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"]; got != "false" {
 		t.Errorf("expected safe-to-evict=false, got %q", got)
@@ -91,7 +91,7 @@ func TestBuildPod_AgentWrapsCommand(t *testing.T) {
 	pod := BuildPod(testSandbox(), tpl, Options{AgentImage: testImage})
 
 	c := pod.Spec.Containers[0]
-	if len(c.Command) == 0 || c.Command[0] != "/kubepark/agent" {
+	if len(c.Command) == 0 || c.Command[0] != agentDir+"/agent" {
 		t.Errorf("expected agent as entrypoint, got %v", c.Command)
 	}
 	if len(c.Args) < 1 || c.Args[0] != "--" {
@@ -99,6 +99,16 @@ func TestBuildPod_AgentWrapsCommand(t *testing.T) {
 	}
 	if pod.Spec.InitContainers[0].Args[0] != "agent" || pod.Spec.InitContainers[0].Args[1] != "install" {
 		t.Errorf("expected agent install init container, got %v", pod.Spec.InitContainers[0].Args)
+	}
+}
+
+func TestBuildPod_ServiceAccountMountsToken(t *testing.T) {
+	pod := BuildPod(testSandbox(), testTemplate(), Options{AgentImage: testImage, ServiceAccountName: "kubepark-sb-demo"})
+	if pod.Spec.ServiceAccountName != "kubepark-sb-demo" {
+		t.Errorf("expected SA set, got %q", pod.Spec.ServiceAccountName)
+	}
+	if pod.Spec.AutomountServiceAccountToken == nil || !*pod.Spec.AutomountServiceAccountToken {
+		t.Error("expected automountServiceAccountToken=true when an SA is set")
 	}
 }
 
